@@ -1,4 +1,7 @@
 
+#include <QWidget> 
+
+
 #define CONFIG_AVDEVICE 0
 #define CONFIG_AVFILTER 0
 #define CONFIG_RTSP_DEMUXER 0
@@ -2796,8 +2799,9 @@ static void seek_chapter(VideoState *is, int incr)
 }
 
 /* handle an event sent by the GUI */
-static void event_loop(VideoState *cur_stream)
+static int event_loop(void *arg)
 {
+	VideoState *cur_stream = (VideoState*)arg;
     SDL_Event event;
     double incr, pos, frac;
 
@@ -2978,6 +2982,8 @@ static void event_loop(VideoState *cur_stream)
             break;
         }
     }
+
+	return 0;
 }
 
 static int opt_frame_size(void *optctx, const char *opt, const char *arg)
@@ -3126,7 +3132,7 @@ void print_error(const char *filename, int err)
 	av_log(NULL, AV_LOG_ERROR, "%s: %s\n", filename, errbuf_ptr);*/
 }  
 
-int ffplay(char *fileName)
+int ffplay(char *fileName,  QWidget *widget)
 {
     int flags;
     VideoState *is;
@@ -3143,13 +3149,23 @@ int ffplay(char *fileName)
 		printf("file error");
         exit(1);
     }
-    flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER;
+
+    flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER | SDL_INIT_EVERYTHING;
 
     if (SDL_Init (flags)) {
         av_log(NULL, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
         av_log(NULL, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
         exit(1);
     }
+	if(widget)
+	{
+		win = SDL_CreateWindowFrom((void*)widget->winId());
+		if (!win) {
+			av_log(NULL, AV_LOG_FATAL, "SDL: could not set video mode - exiting\n");
+			do_exit(is);
+		}
+		render = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE); 
+	}
 
     if (!display_disable)
 	{
@@ -3183,7 +3199,8 @@ int ffplay(char *fileName)
 		return -1;
     }
 
-    event_loop(is);
+//    event_loop(is);
+    SDL_Thread *loop  = SDL_CreateThread(event_loop, "read thread", is);
 
     return 0;
 }

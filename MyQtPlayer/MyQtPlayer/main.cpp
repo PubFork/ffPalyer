@@ -11,25 +11,25 @@
 
 int main(int argc, char * argv[])
 {
-#if USE_FF_PLAY
-	ffplay("video.mp4");
 
-#else
     QApplication app(argc, argv); 
 
   QWidget *widget = new QWidget; 
   widget->setWindowTitle("Video Player"); 
   widget->resize(400,400); 
+#if USE_FF_PLAY
+	ffplay("video.mp4", widget);
 
+#else
   Phonon::VideoPlayer *player = new Phonon::VideoPlayer(Phonon::VideoCategory, widget); 
   player->load(Phonon::MediaSource("video.mp4")); 
 
   player->play(); 
+#endif
 
   widget->show(); 
 
   return app.exec(); 
-#endif
 }
 
 
