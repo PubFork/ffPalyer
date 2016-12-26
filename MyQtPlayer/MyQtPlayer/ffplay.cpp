@@ -115,7 +115,7 @@ typedef struct PacketQueue {
     SDL_cond *cond;
 } PacketQueue;
 
-#define VIDEO_PICTURE_QUEUE_SIZE 3
+#define VIDEO_PICTURE_QUEUE_SIZE 5
 #define SUBPICTURE_QUEUE_SIZE 16
 #define SAMPLE_QUEUE_SIZE 9
 #define FRAME_QUEUE_SIZE FFMAX(SAMPLE_QUEUE_SIZE, FFMAX(VIDEO_PICTURE_QUEUE_SIZE, SUBPICTURE_QUEUE_SIZE))
@@ -302,11 +302,6 @@ VideoState *g_pVS;
 /* options specified by the user */
 static AVInputFormat *file_iformat;
 
-static const char *window_title;
-static int fs_screen_width;
-static int fs_screen_height;
-static int default_width  = 640;
-static int default_height = 480;
 static int audio_disable;
 static int video_disable;
 static int subtitle_disable;
@@ -855,8 +850,10 @@ static void video_image_display(VideoState *is)
     int i;
 
     vp = frame_queue_peek(&is->pictq);
-    if (vp->bmp) {
-        if (is->subtitle_st) {
+    if (vp->bmp)
+	{
+        if (is->subtitle_st) 
+		{
             if (frame_queue_nb_remaining(&is->subpq) > 0) {
                 sp = frame_queue_peek(&is->subpq);
 
@@ -884,8 +881,6 @@ static void video_image_display(VideoState *is)
                 }
             }
         }
-		
-		//SDL_SetRenderDrawColor(render, 0, 0, 0, 255);	
 		SDL_RenderClear(render);
 		SDL_RenderCopy(render, vp->bmp, NULL, NULL);
 		SDL_RenderPresent(render);
@@ -1080,14 +1075,6 @@ static void sigterm_handler(int sig)
     exit(123);
 }
 
-static void set_default_window_size(int width, int height, AVRational sar)
-{
-    SDL_Rect rect;
-    calculate_display_rect(&rect, 0, 0, INT_MAX, height, width, height, sar);
-    default_width  = rect.w;
-    default_height = rect.h;
-}
-
 static int video_open(VideoState *is, int force_set_video_mode, Frame *vp)
 {
     int flags = 0;
@@ -1096,20 +1083,10 @@ static int video_open(VideoState *is, int force_set_video_mode, Frame *vp)
     if (is_full_screen) flags |= SDL_WINDOW_FULLSCREEN;
     else                flags |= SDL_WINDOW_RESIZABLE;
 
-    if (vp && vp->width)
-        set_default_window_size(vp->width, vp->height, vp->sar);
-
-    if (is_full_screen && fs_screen_width) {
-        w = fs_screen_width;
-        h = fs_screen_height;
-    }else {
-        w = default_width;
-        h = default_height;
-    }
-    w = FFMIN(16383, w);
-    is->width  = w;
-    is->height = h;
-
+	SDL_GetWindowSize(win, &w, &h);
+	w = FFMIN(16383, w);
+	is->width  = w;
+	is->height = h;
     return 0;
 }
 
@@ -1235,6 +1212,11 @@ static void stream_seek(VideoState *is, int64_t pos, int64_t rel, int seek_by_by
     }
 }
 
+void seek(double frac)
+{
+	int64_t ts = frac * g_pVS->ic->duration;
+	stream_seek(g_pVS, ts, 0, 0);
+}
 /* pause or resume the video */
 static void stream_toggle_pause(VideoState *is)
 {
@@ -1253,6 +1235,13 @@ static void toggle_pause(VideoState *is)
 {
     stream_toggle_pause(is);
     is->step = 0;
+}
+
+//API
+void pause()
+{
+    stream_toggle_pause(g_pVS);
+    g_pVS->step = 0;
 }
 
 static void step_to_next_frame(VideoState *is)
@@ -1733,16 +1722,13 @@ static int video_thread(void *arg)
             goto the_end;
         if (!ret)
             continue;
-
-
-            duration = (frame_rate.num && frame_rate.den ? av_q2d(make_AVR(frame_rate.den, frame_rate.num)) : 0);
-            pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
-            ret = queue_picture(is, frame, pts, duration, av_frame_get_pkt_pos(frame), is->viddec.pkt_serial);
-            av_frame_unref(frame);
+		duration = (frame_rate.num && frame_rate.den ? av_q2d(make_AVR(frame_rate.den, frame_rate.num)) : 0);
+        pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
+        ret = queue_picture(is, frame, pts, duration, av_frame_get_pkt_pos(frame), is->viddec.pkt_serial);
+        av_frame_unref(frame);
 #if CONFIG_AVFILTER
         }
 #endif
-
         if (ret < 0)
             goto the_end;
     }
@@ -2333,9 +2319,6 @@ static int read_thread(void *arg)
 
     is->max_frame_duration = (ic->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
 
-    if (!window_title && (t = av_dict_get(ic->metadata, "title", NULL, 0)))
-		window_title = av_asprintf("%s - %s", t->value, is->filename);
-
     /* if seeking requested, we execute it */
     if (start_time != AV_NOPTS_VALUE) {
         int64_t timestamp;
@@ -2380,8 +2363,6 @@ static int read_thread(void *arg)
         AVStream *st = ic->streams[st_index[AVMEDIA_TYPE_VIDEO]];
         AVCodecContext *avctx = st->codec;
         AVRational sar = av_guess_sample_aspect_ratio(ic, st, NULL);
-        if (avctx->width)
-            set_default_window_size(avctx->width, avctx->height, sar);
     }
 
     /* open the streams */
@@ -2894,20 +2875,7 @@ static int event_loop(void *arg)
                     stream_seek(cur_stream, size*x/cur_stream->width, 0, 1);
                 } else {
                     int64_t ts;
-                    int ns, hh, mm, ss;
-                    int tns, thh, tmm, tss;
-                    tns  = cur_stream->ic->duration / 1000000LL;
-                    thh  = tns / 3600;
-                    tmm  = (tns % 3600) / 60;
-                    tss  = (tns % 60);
                     frac = x / cur_stream->width;
-                    ns   = frac * tns;
-                    hh   = ns / 3600;
-                    mm   = (ns % 3600) / 60;
-                    ss   = (ns % 60);
-                    av_log(NULL, AV_LOG_INFO,
-                           "Seek to %2.0f%% (%2d:%02d:%02d) of total duration (%2d:%02d:%02d)       \n", frac*100,
-                            hh, mm, ss, thh, tmm, tss);
                     ts = frac * cur_stream->ic->duration;
                     if (cur_stream->ic->start_time != AV_NOPTS_VALUE)
                         ts += cur_stream->ic->start_time;
@@ -2965,7 +2933,7 @@ int ffplay(char *fileName,  QWidget *widget)
         exit(1);
     }
 
-    flags =  SDL_INIT_EVERYTHING;
+    flags =  SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO;
 
     if (SDL_Init (flags))
 	{
@@ -2995,7 +2963,8 @@ int ffplay(char *fileName,  QWidget *widget)
 	{
 		return -1;
     }
-    SDL_Thread *loop  = SDL_CreateThread(event_loop, "read thread", g_pVS);
+	event_loop(g_pVS);
+//    SDL_Thread *loop  = SDL_CreateThread(event_loop, "read thread", g_pVS);
 
     return 0;
 }

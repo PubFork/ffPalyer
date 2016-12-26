@@ -16,7 +16,9 @@ int main(int argc, char * argv[])
 
   QWidget *widget = new QWidget; 
   widget->setWindowTitle("Video Player"); 
-  widget->resize(400,400); 
+  widget->resize(800,400); 
+  widget->show(); 
+
 #if USE_FF_PLAY
 	ffplay("video.mp4", widget);
 
@@ -26,8 +28,6 @@ int main(int argc, char * argv[])
 
   player->play(); 
 #endif
-
-  widget->show(); 
 
   return app.exec(); 
 }

@@ -3,4 +3,6 @@
 
 #include <QWidget> 
 int ffplay(char *fileName,  QWidget *widget);
+void pause();
+void seek(double frac);
 #endif
