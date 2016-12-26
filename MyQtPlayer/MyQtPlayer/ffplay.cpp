@@ -307,8 +307,6 @@ static int fs_screen_width;
 static int fs_screen_height;
 static int default_width  = 640;
 static int default_height = 480;
-static int screen_width  = 0;
-static int screen_height = 0;
 static int audio_disable;
 static int video_disable;
 static int subtitle_disable;
@@ -1104,32 +1102,11 @@ static int video_open(VideoState *is, int force_set_video_mode, Frame *vp)
     if (is_full_screen && fs_screen_width) {
         w = fs_screen_width;
         h = fs_screen_height;
-    } else if (!is_full_screen && screen_width) {
-        w = screen_width;
-        h = screen_height;
-    } else {
+    }else {
         w = default_width;
         h = default_height;
     }
     w = FFMIN(16383, w);
-    if (win && is->width == w
-       && is->height == h && !force_set_video_mode)
-        return 0;
-	if (!window_title)
-		window_title = is->filename;	
-	if(!win){
-		win = SDL_CreateWindow(window_title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, flags);
-		if (!win) {
-			av_log(NULL, AV_LOG_FATAL, "SDL: could not set video mode - exiting\n");
-			do_exit(is);
-		}
-		render = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE); 
-	}
-	w /= 4;
-	h /= 4;
-	SDL_SetWindowSize(win, w, h);
-	//SDL_SetWindowFullscreen(win, flags); 
-	SDL_GetWindowSize(win, &w, &h);
     is->width  = w;
     is->height = h;
 
@@ -1540,10 +1517,6 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 		vp->bmp = SDL_CreateTexture(render, SDL_PIXELFORMAT_IYUV,
 				SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
 		if (!vp->bmp) {
-			av_log(NULL, AV_LOG_FATAL,
-					"Error: the video system does not support an image\n"
-					"size of %dx%d pixels. Try using -lowres or -vf \"scale=w:h\"\n"
-					"to reduce the image size.err: %s\n", vp->width, vp->height, SDL_GetError() );
 			do_exit(is);
 		}
 		printf("alloc texture %dx%d\n", vp->width, vp->height);
@@ -1560,11 +1533,6 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double duration, int64_t pos, int serial)
 {
     Frame *vp;
-		
-#if defined(DEBUG_SYNC) && 0
-    printf("frame_type=%c pts=%0.3f\n",
-           av_get_picture_type_char(src_frame->pict_type), pts);
-#endif
 
     if (!(vp = frame_queue_peek_writable(&is->pictq)))
         return -1;
@@ -1572,11 +1540,6 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
     vp->sar = src_frame->sample_aspect_ratio;
 
     /* alloc, resize or scale hardware picture buffer */
-	#if 0
-    if (!vp->bmp || vp->reallocate || !vp->allocated ||
-        vp->width  != src_frame->width ||
-        vp->height != src_frame->height) 
-	#endif
 	{
         SDL_Event event;
 
@@ -2901,8 +2864,8 @@ static int event_loop(void *arg)
 					SDL_SetWindowSize(win, FFMIN(16383, (int)event.window.data1), (int)event.window.data2);
 					SDL_SetWindowFullscreen(win, (is_full_screen?SDL_WINDOW_FULLSCREEN:0)); 
 					SDL_GetWindowSize(win, &w, &h);
-					screen_width  = cur_stream->width  = w;
-					screen_height = cur_stream->height = h;
+					cur_stream->width  = w;
+					cur_stream->height = h;
 					cur_stream->force_refresh = 1;
 				}break;
 				default:break;
@@ -3002,12 +2965,11 @@ int ffplay(char *fileName,  QWidget *widget)
         exit(1);
     }
 
-    flags = SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER | SDL_INIT_EVERYTHING;
+    flags =  SDL_INIT_EVERYTHING;
 
-    if (SDL_Init (flags)) {
-        av_log(NULL, AV_LOG_FATAL, "Could not initialize SDL - %s\n", SDL_GetError());
-        av_log(NULL, AV_LOG_FATAL, "(Did you set the DISPLAY variable?)\n");
-        exit(1);
+    if (SDL_Init (flags))
+	{
+		return -1;
     }
 	if(widget)
 	{
@@ -3018,13 +2980,11 @@ int ffplay(char *fileName,  QWidget *widget)
 		render = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE); 
 	}
 
-
     SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
     SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
 
     if (av_lockmgr_register(lockmgr)) 
 	{
-        av_log(NULL, AV_LOG_FATAL, "Could not initialize lock manager!\n");
         do_exit(NULL);
     }
     av_init_packet(&flush_pkt);
@@ -3035,8 +2995,6 @@ int ffplay(char *fileName,  QWidget *widget)
 	{
 		return -1;
     }
-
-//    event_loop(is);
     SDL_Thread *loop  = SDL_CreateThread(event_loop, "read thread", g_pVS);
 
     return 0;
