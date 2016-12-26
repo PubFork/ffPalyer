@@ -1,11 +1,7 @@
 
 #include <QWidget> 
-
-
-#define CONFIG_AVDEVICE 0
+#include <assert.h>
 #define CONFIG_AVFILTER 0
-#define CONFIG_RTSP_DEMUXER 0
-#define CONFIG_MMSH_PROTOCOL 0
 
 extern "C"
 {
@@ -47,8 +43,6 @@ extern "C"
 #ifndef INT64_MAX
 	#define INT64_MAX INT64_C(9223372036854775807)
 #endif
-
-#include <assert.h>
 
 const AVRational g_base_time =  {1, AV_TIME_BASE}; // g_base_time;
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
@@ -259,10 +253,6 @@ typedef struct VideoState {
     struct SwrContext *swr_ctx;
     int frame_drops_early;
     int frame_drops_late;
-
-    /*enum ShowMode {
-        SHOW_MODE_NONE = -1, SHOW_MODE_VIDEO = 0, SHOW_MODE_WAVES, SHOW_MODE_RDFT, SHOW_MODE_NB
-    } show_mode;*/
 	ShowMode  show_mode;
     int16_t sample_array[SAMPLE_ARRAY_SIZE];
     int sample_array_index;
@@ -308,6 +298,7 @@ typedef struct VideoState {
     SDL_cond *continue_read_thread;
 } VideoState;
 
+VideoState *g_pVS;
 /* options specified by the user */
 static AVInputFormat *file_iformat;
 
@@ -375,9 +366,7 @@ static int opt_add_vfilter(void *optctx, const char *opt, const char *arg)
 }
 #endif
 
-static inline
-int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1,
-                   enum AVSampleFormat fmt2, int64_t channel_count2)
+static inline int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1, enum AVSampleFormat fmt2, int64_t channel_count2)
 {
     /* If channel count == 1, planar and non-planar formats are the same */
     if (channel_count1 == 1 && channel_count2 == 1)
@@ -386,8 +375,7 @@ int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1,
         return channel_count1 != channel_count2 || fmt1 != fmt2;
 }
 
-static inline
-int64_t get_valid_channel_layout(int64_t channel_layout, int channels)
+static inline int64_t get_valid_channel_layout(int64_t channel_layout, int channels)
 {
     if (channel_layout && av_get_channel_layout_nb_channels(channel_layout) == channels)
         return channel_layout;
@@ -786,8 +774,7 @@ static int64_t frame_queue_last_pos(FrameQueue *f)
         return -1;
 }
 
-static inline void fill_rectangle(SDL_Surface *screen,
-                                  int x, int y, int w, int h, int color, int update)
+static inline void fill_rectangle(SDL_Surface *screen, int x, int y, int w, int h, int color, int update)
 {
 	Uint8 a, r, g, b;
     SDL_Rect rect;
@@ -2365,7 +2352,6 @@ static int read_thread(void *arg)
 
     err = avformat_open_input(&ic, is->filename, is->iformat, NULL);
     if (err < 0) {
-        print_error(is->filename, err);
         ret = -1;
         goto fail;
     }
@@ -2728,12 +2714,6 @@ static void stream_cycle_channel(VideoState *is, int codec_type)
 
 static void toggle_full_screen(VideoState *is)
 {
-#if defined(__APPLE__) && SDL_VERSION_ATLEAST(1, 2, 14)
-    /* OS X needs to reallocate the SDL overlays */
-    int i;
-    for (i = 0; i < VIDEO_PICTURE_QUEUE_SIZE; i++)
-        is->pictq.queue[i].reallocate = 1;
-#endif
     is_full_screen = !is_full_screen;
     video_open(is, 1, NULL);
 }
@@ -2986,122 +2966,6 @@ static int event_loop(void *arg)
 	return 0;
 }
 
-static int opt_frame_size(void *optctx, const char *opt, const char *arg)
-{
-    av_log(NULL, AV_LOG_WARNING, "Option -s is deprecated, use -video_size.\n");
-    return opt_default(NULL, "video_size", arg);
-}
-
-static int opt_width(void *optctx, const char *opt, const char *arg)
-{
-    screen_width = parse_number_or_die(opt, arg, OPT_INT64, 1, INT_MAX);
-    return 0;
-}
-
-static int opt_height(void *optctx, const char *opt, const char *arg)
-{
-    screen_height = parse_number_or_die(opt, arg, OPT_INT64, 1, INT_MAX);
-    return 0;
-}
-
-static int opt_format(void *optctx, const char *opt, const char *arg)
-{
-    file_iformat = av_find_input_format(arg);
-    if (!file_iformat) {
-        av_log(NULL, AV_LOG_FATAL, "Unknown input format: %s\n", arg);
-        return AVERROR(EINVAL);
-    }
-    return 0;
-}
-
-static int opt_frame_pix_fmt(void *optctx, const char *opt, const char *arg)
-{
-    av_log(NULL, AV_LOG_WARNING, "Option -pix_fmt is deprecated, use -pixel_format.\n");
-    return opt_default(NULL, "pixel_format", arg);
-}
-
-static int opt_sync(void *optctx, const char *opt, const char *arg)
-{
-    if (!strcmp(arg, "audio"))
-        av_sync_type = AV_SYNC_AUDIO_MASTER;
-    else if (!strcmp(arg, "video"))
-        av_sync_type = AV_SYNC_VIDEO_MASTER;
-    else if (!strcmp(arg, "ext"))
-        av_sync_type = AV_SYNC_EXTERNAL_CLOCK;
-    else {
-        av_log(NULL, AV_LOG_ERROR, "Unknown value for %s: %s\n", opt, arg);
-        exit(1);
-    }
-    return 0;
-}
-
-static int opt_seek(void *optctx, const char *opt, const char *arg)
-{
-    start_time = parse_time_or_die(opt, arg, 1);
-    return 0;
-}
-
-static int opt_duration(void *optctx, const char *opt, const char *arg)
-{
-    duration = parse_time_or_die(opt, arg, 1);
-    return 0;
-}
-
-static int opt_show_mode(void *optctx, const char *opt, const char *arg)
-{
-    show_mode = !strcmp(arg, "video") ? SHOW_MODE_VIDEO :
-                !strcmp(arg, "waves") ? SHOW_MODE_WAVES :
-                !strcmp(arg, "rdft" ) ? SHOW_MODE_RDFT  :
-                 (ShowMode)((int)parse_number_or_die(opt, arg, OPT_INT, 0, SHOW_MODE_NB-1));
-    return 0;
-}
-
-static void opt_input_file(void *optctx, const char *filename)
-{
-	/*
-    if (input_filename) 
-	{
-        exit(1);
-    }
-    if (!strcmp(filename, "-"))
-        filename = "pipe:";
-    input_filename = filename;
-	*/
-}
-
-static int opt_codec(void *optctx, const char *opt, const char *arg)
-{
-   const char *spec = strchr(opt, ':');
-   if (!spec) {
-       av_log(NULL, AV_LOG_ERROR,
-              "No media specifier was specified in '%s' in option '%s'\n",
-               arg, opt);
-       return AVERROR(EINVAL);
-   }
-   spec++;
-   switch (spec[0]) {
-   case 'a' :    audio_codec_name = arg; break;
-   case 's' : subtitle_codec_name = arg; break;
-   case 'v' :    video_codec_name = arg; break;
-   default:
-       av_log(NULL, AV_LOG_ERROR,
-              "Invalid media specifier '%s' in option '%s'\n", spec, opt);
-       return AVERROR(EINVAL);
-   }
-   return 0;
-}
-
-static int dummy;
-
-static const OptionDef options[] = {
-    { NULL, },
-};
-
-void show_help_default(const char *opt, const char *arg)
-{
-
-}
-
 static int lockmgr(void **mtx, enum AVLockOp op)
 {
    switch(op) {
@@ -3121,21 +2985,9 @@ static int lockmgr(void **mtx, enum AVLockOp op)
    return 1;
 }
 
-
-void print_error(const char *filename, int err)
-{
-	/*char errbuf[128];
-	const char *errbuf_ptr = errbuf;
-
-	if (av_strerror(err, errbuf, sizeof(errbuf)) < 0)
-		errbuf_ptr = strerror(AVUNERROR(err));
-	av_log(NULL, AV_LOG_ERROR, "%s: %s\n", filename, errbuf_ptr);*/
-}  
-
 int ffplay(char *fileName,  QWidget *widget)
 {
     int flags;
-    VideoState *is;
     char dummy_videodriver[] = "SDL_VIDEODRIVER=dummy";
 
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
@@ -3161,26 +3013,11 @@ int ffplay(char *fileName,  QWidget *widget)
 	{
 		win = SDL_CreateWindowFrom((void*)widget->winId());
 		if (!win) {
-			av_log(NULL, AV_LOG_FATAL, "SDL: could not set video mode - exiting\n");
-			do_exit(is);
+			do_exit(g_pVS);
 		}
 		render = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE); 
 	}
 
-    if (!display_disable)
-	{
-		SDL_Rect r = {0};
-		printf("video drv: %s\n", SDL_GetCurrentVideoDriver());
-		if(SDL_GetDisplayBounds(0, &r))
-		{
-			av_log(NULL, AV_LOG_FATAL, "sdl fail: %s\n", SDL_GetError());
-			r.w = r.h = 0;
-		}
-		r.w = 800;
-		r.h = 600;
-        fs_screen_width = r.w;
-        fs_screen_height = r.h;
-    }
 
     SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
     SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
@@ -3193,14 +3030,14 @@ int ffplay(char *fileName,  QWidget *widget)
     av_init_packet(&flush_pkt);
     flush_pkt.data = (uint8_t *)&flush_pkt;
 
-    is = stream_open(fileName, file_iformat);
-    if (!is)
+    g_pVS = stream_open(fileName, file_iformat);
+    if (!g_pVS)
 	{
 		return -1;
     }
 
 //    event_loop(is);
-    SDL_Thread *loop  = SDL_CreateThread(event_loop, "read thread", is);
+    SDL_Thread *loop  = SDL_CreateThread(event_loop, "read thread", g_pVS);
 
     return 0;
 }
