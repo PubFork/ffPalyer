@@ -2493,7 +2493,6 @@ static int stream_component_open(VideoState *is, int stream_index)
     AVCodecContext *avctx;
     AVCodec *codec;
     const char *forced_codec_name = NULL;
-    AVDictionary *opts = NULL;
     AVDictionaryEntry *t = NULL;
     int sample_rate, nb_channels;
     int64_t channel_layout;
@@ -2502,14 +2501,9 @@ static int stream_component_open(VideoState *is, int stream_index)
 
     if (stream_index < 0 || stream_index >= ic->nb_streams)
         return -1;
+	
 
-    avctx = avcodec_alloc_context3(NULL);
-    if (!avctx)
-        return AVERROR(ENOMEM);
-    if (ret < 0)
-        goto fail;
-    av_codec_set_pkt_timebase(avctx, ic->streams[stream_index]->time_base);
-
+    avctx = ic->streams[stream_index]->codec;
     codec = avcodec_find_decoder(avctx->codec_id);
 
     switch(avctx->codec_type){
@@ -2530,17 +2524,16 @@ static int stream_component_open(VideoState *is, int stream_index)
     }
     av_codec_set_lowres(avctx, stream_lowres);
 
-#if FF_API_EMU_EDGE
     if(stream_lowres) avctx->flags |= CODEC_FLAG_EMU_EDGE;
-#endif
     if (fast)
         avctx->flags2 |= AV_CODEC_FLAG2_FAST;
-#if FF_API_EMU_EDGE
     if(codec->capabilities & AV_CODEC_CAP_DR1)
         avctx->flags |= CODEC_FLAG_EMU_EDGE;
-#endif
 
-    is->eof = 0;
+    if ((ret = avcodec_open2(avctx, codec, NULL)) < 0) 
+	{
+        goto fail;
+    }
     ic->streams[stream_index]->discard = AVDISCARD_DEFAULT;
     switch (avctx->codec_type) {
     case AVMEDIA_TYPE_AUDIO:
@@ -2617,7 +2610,6 @@ static int stream_component_open(VideoState *is, int stream_index)
 fail:
     avcodec_free_context(&avctx);
 out:
-    av_dict_free(&opts);
 
     return ret;
 }
@@ -3383,7 +3375,7 @@ int ffplay(char *fileName,  QWidget *widget)
 	{
 		return -1;
     }
-    SDL_Thread *loop  = SDL_CreateThread(event_loop, "read thread", g_pVS);
+    SDL_Thread *loop  = SDL_CreateThread(event_loop, "event_loop", g_pVS);
 
     return 0;
 }
