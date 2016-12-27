@@ -12,7 +12,7 @@ extern "C"
 #include <stdint.h>
 
 #include "libavutil/avstring.h"
-#include "libavutil/colorspace.h"
+//#include "libavutil/colorspace.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/imgutils.h"
@@ -1768,11 +1768,13 @@ static int subtitle_thread(void *arg)
             {
                 for (j = 0; j < sp->sub.rects[i]->nb_colors; j++)
                 {
+#if YUV_CHANGE
                     RGBA_IN(r, g, b, a, (uint32_t*)sp->sub.rects[i]->pict.data[1] + j);
                     y = RGB_TO_Y_CCIR(r, g, b);
                     u = RGB_TO_U_CCIR(r, g, b, 0);
                     v = RGB_TO_V_CCIR(r, g, b, 0);
                     YUVA_OUT((uint32_t*)sp->sub.rects[i]->pict.data[1] + j, y, u, v, a);
+#endif
                 }
             }
 
@@ -2919,6 +2921,7 @@ static int lockmgr(void **mtx, enum AVLockOp op)
 int ffplay(char *fileName,  QWidget *widget)
 {
     int flags;
+    char dummy_videodriver[] = "SDL_VIDEODRIVER=dummy";
 
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
     av_register_all();
