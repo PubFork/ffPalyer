@@ -1,4 +1,10 @@
 
+#include <QWidget> 
+#include <assert.h>
+#define CONFIG_AVFILTER 0
+
+extern "C"
+{
 #include <inttypes.h>
 #include <math.h>
 #include <limits.h>
@@ -6,7 +12,7 @@
 #include <stdint.h>
 
 #include "libavutil/avstring.h"
-#include "libavutil/eval.h"
+//#include "libavutil/colorspace.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/imgutils.h"
@@ -15,26 +21,19 @@
 #include "libavutil/samplefmt.h"
 #include "libavutil/avassert.h"
 #include "libavutil/time.h"
+
 #include "libavformat/avformat.h"
 #include "libavdevice/avdevice.h"
 #include "libswscale/swscale.h"
 #include "libavutil/opt.h"
 #include "libavcodec/avfft.h"
 #include "libswresample/swresample.h"
-
-#if CONFIG_AVFILTER
-# include "libavfilter/avfilter.h"
-# include "libavfilter/buffersink.h"
-# include "libavfilter/buffersrc.h"
-#endif
-
-#include <SDL.h>
-#include <SDL_thread.h>
-
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_thread.h>
 #include "cmdutils.h"
+};
 
-#include <assert.h>
-
+#define  av_gettime_relative av_gettime
 const char program_name[] = "ffplay";
 const int program_birth_year = 2003;
 
@@ -217,11 +216,8 @@ typedef struct VideoState {
     Decoder auddec;
     Decoder viddec;
     Decoder subdec;
-
     int audio_stream;
-
     int av_sync_type;
-
     double audio_clock;
     int audio_clock_serial;
     double audio_diff_cum; /* used for AV difference average computation */
@@ -794,6 +790,7 @@ static inline double rint(double x)
 {
 	return x >= 0 ? floor(x + 0.5) : ceil(x - 0.5);
 }
+
 static int realloc_texture(SDL_Texture **texture, Uint32 new_format, int new_width, int new_height, SDL_BlendMode blendmode, int init_texture)
 {
     Uint32 format;
@@ -1210,7 +1207,6 @@ static void do_exit(VideoState *is)
     if (window)
         SDL_DestroyWindow(window);
     av_lockmgr_register(NULL);
-    uninit_opts();
 #if CONFIG_AVFILTER
     av_freep(&vfilters_list);
 #endif
@@ -2544,21 +2540,6 @@ static int stream_component_open(VideoState *is, int stream_index)
         avctx->flags |= CODEC_FLAG_EMU_EDGE;
 #endif
 
-    opts = filter_codec_opts(codec_opts, avctx->codec_id, ic, ic->streams[stream_index], codec);
-    if (!av_dict_get(opts, "threads", NULL, 0))
-        av_dict_set(&opts, "threads", "auto", 0);
-    if (stream_lowres)
-        av_dict_set_int(&opts, "lowres", stream_lowres, 0);
-    if (avctx->codec_type == AVMEDIA_TYPE_VIDEO || avctx->codec_type == AVMEDIA_TYPE_AUDIO)
-        av_dict_set(&opts, "refcounted_frames", "1", 0);
-    if ((ret = avcodec_open2(avctx, codec, &opts)) < 0) {
-        goto fail;
-    }
-    if ((t = av_dict_get(opts, "", NULL, AV_DICT_IGNORE_SUFFIX))) {
-        ret =  AVERROR_OPTION_NOT_FOUND;
-        goto fail;
-    }
-
     is->eof = 0;
     ic->streams[stream_index]->discard = AVDISCARD_DEFAULT;
     switch (avctx->codec_type) {
@@ -2705,21 +2686,10 @@ static int read_thread(void *arg)
     }
     ic->interrupt_callback.callback = decode_interrupt_cb;
     ic->interrupt_callback.opaque = is;
-    if (!av_dict_get(format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE)) {
-        av_dict_set(&format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
-        scan_all_pmts_set = 1;
-    }
-    err = avformat_open_input(&ic, is->filename, is->iformat, &format_opts);
+    
+    err = avformat_open_input(&ic, is->filename, is->iformat, NULL);
     if (err < 0) {
-        print_error(is->filename, err);
         ret = -1;
-        goto fail;
-    }
-    if (scan_all_pmts_set)
-        av_dict_set(&format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE);
-
-    if ((t = av_dict_get(format_opts, "", NULL, AV_DICT_IGNORE_SUFFIX))) {
-        ret = AVERROR_OPTION_NOT_FOUND;
         goto fail;
     }
     is->ic = ic;
@@ -2729,20 +2699,6 @@ static int read_thread(void *arg)
 
     av_format_inject_global_side_data(ic);
 
-    opts = setup_find_stream_info_opts(ic, codec_opts);
-    orig_nb_streams = ic->nb_streams;
-
-    err = avformat_find_stream_info(ic, opts);
-
-    for (i = 0; i < orig_nb_streams; i++)
-        av_dict_free(&opts[i]);
-    av_freep(&opts);
-
-    if (err < 0) {
-        ret = -1;
-        goto fail;
-    }
-
     if (ic->pb)
         ic->pb->eof_reached = 0; // FIXME hack, ffplay maybe should not use avio_feof() to test for the end
 
@@ -2750,9 +2706,6 @@ static int read_thread(void *arg)
         seek_by_bytes = !!(ic->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", ic->iformat->name);
 
     is->max_frame_duration = (ic->iformat->flags & AVFMT_TS_DISCONT) ? 10.0 : 3600.0;
-
-    if (!window_title && (t = av_dict_get(ic->metadata, "title", NULL, 0)))
-        window_title = av_asprintf("%s - %s", t->value, input_filename);
 
     /* if seeking requested, we execute it */
     if (start_time != AV_NOPTS_VALUE) {
@@ -3100,7 +3053,6 @@ static void stream_cycle_channel(VideoState *is, int codec_type)
     stream_component_close(is, old_index);
     stream_component_open(is, stream_index);
 }
-
 
 static void toggle_full_screen(VideoState *is)
 {
