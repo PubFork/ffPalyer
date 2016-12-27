@@ -1232,45 +1232,16 @@ static void set_default_window_size(int width, int height, AVRational sar)
 
 static int video_open(VideoState *is, Frame *vp)
 {
+   int flags = 0;
     int w,h;
 
-    if (vp && vp->width)
-        set_default_window_size(vp->width, vp->height, vp->sar);
+	if (is_full_screen) flags |= SDL_WINDOW_FULLSCREEN;
+    else                flags |= SDL_WINDOW_RESIZABLE;
 
-    if (screen_width) {
-        w = screen_width;
-        h = screen_height;
-    } else {
-        w = default_width;
-        h = default_height;
-    }
-
-    if (!window) {
-        int flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
-        if (!window_title)
-            window_title = input_filename;
-        if (is_full_screen)
-            flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-        window = SDL_CreateWindow(window_title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, flags);
-        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
-        if (window) {
-            SDL_RendererInfo info;
-            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-            if (renderer) {
-                if (!SDL_GetRendererInfo(renderer, &info))
-				{}
-            }
-        }
-    } else {
-        SDL_SetWindowSize(window, w, h);
-    }
-
-    if (!window || !renderer) {
-        do_exit(is);
-    }
-
-    is->width  = w;
-    is->height = h;
+	SDL_GetWindowSize(window, &w, &h);
+	w = FFMIN(16383, w);
+	is->width  = w;
+	is->height = h;
 
     return 0;
 }
