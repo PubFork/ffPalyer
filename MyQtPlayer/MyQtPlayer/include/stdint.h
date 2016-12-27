@@ -23,9 +23,7 @@
 #define __need_wchar_t
 #include <stddef.h>
 
-//FIX----------
-#define __STDC_CONSTANT_MACROS
-//-------------
+#define UINT64_C(val) val##ULL
 
 /* 7.18.1.1  Exact-width integer types */
 typedef signed char int8_t;
@@ -34,8 +32,11 @@ typedef short  int16_t;
 typedef unsigned short  uint16_t;
 typedef int  int32_t;
 typedef unsigned   uint32_t;
-typedef long long  int64_t;
-typedef unsigned long long   uint64_t;
+//typedef long long  int64_t;
+//typedef unsigned long long   uint64_t;
+
+typedef __int64 int64_t;
+typedef unsigned __int64 uint64_t;
 
 /* 7.18.1.2  Minimum-width integer types */
 typedef signed char int_least8_t;
@@ -44,21 +45,27 @@ typedef short  int_least16_t;
 typedef unsigned short  uint_least16_t;
 typedef int  int_least32_t;
 typedef unsigned   uint_least32_t;
-typedef long long  int_least64_t;
-typedef unsigned long long   uint_least64_t;
+//typedef long long  int_least64_t;
+//typedef unsigned long long   uint_least64_t;
+
+typedef __int64 int_least64_t;
+typedef unsigned __int64 uint_least64_t;
 
 /*  7.18.1.3  Fastest minimum-width integer types 
  *  Not actually guaranteed to be fastest for all purposes
  *  Here we use the exact-width types for 8 and 16-bit ints. 
  */
-typedef signed char int_fast8_t;
+typedef char int_fast8_t;
 typedef unsigned char uint_fast8_t;
 typedef short  int_fast16_t;
 typedef unsigned short  uint_fast16_t;
 typedef int  int_fast32_t;
 typedef unsigned  int  uint_fast32_t;
-typedef long long  int_fast64_t;
-typedef unsigned long long   uint_fast64_t;
+//typedef long long  int_fast64_t;
+//typedef unsigned long long   uint_fast64_t;
+
+typedef __int64 int_fast64_t;
+typedef unsigned __int64 uint_fast64_t;
 
 /* 7.18.1.4  Integer types capable of holding object pointers */
 
@@ -81,11 +88,14 @@ typedef unsigned long long   uint_fast64_t;
 #endif
 
 /* 7.18.1.5  Greatest-width integer types */
-typedef long long  intmax_t;
-typedef unsigned long long uintmax_t;
+//typedef long long  intmax_t;
+//typedef unsigned long long uintmax_t;
+
+typedef __int64 intmax_t;
+typedef unsigned __int64 uintmax_t;
 
 /* 7.18.2  Limits of specified-width integer types */
-#if !defined ( __cplusplus) || defined (__STDC_LIMIT_MACROS)
+//#if !defined ( __cplusplus) || defined (__STDC_LIMIT_MACROS)
 
 /* 7.18.2.1  Limits of exact-width integer types */
 #define INT8_MIN (-128) 
@@ -102,6 +112,11 @@ typedef unsigned long long uintmax_t;
 #define UINT16_MAX 0xffff /* 65535U */
 #define UINT32_MAX 0xffffffff  /* 4294967295U */
 #define UINT64_MAX 0xffffffffffffffffULL /* 18446744073709551615ULL */
+
+#define FLOAT_MIN (3.4E-38)
+#define FLOAT_MAX (3.4E+38)
+#define DOUBLE_MIN (1.7E-308)
+#define DOUBLE_MAX (1.7E+308)
 
 /* 7.18.2.2  Limits of minimum-width integer types */
 #define INT_LEAST8_MIN INT8_MIN
@@ -172,11 +187,11 @@ typedef unsigned long long uintmax_t;
 #define WINT_MIN 0
 #define WINT_MAX 0xffff /* UINT16_MAX */
 
-#endif /* !defined ( __cplusplus) || defined __STDC_LIMIT_MACROS */
+//#endif /* !defined ( __cplusplus) || defined __STDC_LIMIT_MACROS */
 
 
 /* 7.18.4  Macros for integer constants */
-#if !defined ( __cplusplus) || defined (__STDC_CONSTANT_MACROS)
+//#if !defined ( __cplusplus) || defined (__STDC_CONSTANT_MACROS)
 
 /* 7.18.4.1  Macros for minimum-width integer constants
 
@@ -191,13 +206,13 @@ typedef unsigned long long uintmax_t;
 	*expression* with *promoted* type."
 */
 
-#define INT8_C(val) val
-#define UINT8_C(val) val
-#define INT16_C(val) val
-#define UINT16_C(val) val
+#define INT8_C(val) ((int8_t) + (val))
+#define UINT8_C(val) ((uint8_t) + (val##U))
+#define INT16_C(val) ((int16_t) + (val))
+#define UINT16_C(val) ((uint16_t) + (val##U))
 
-#define INT32_C(val) val
-#define UINT32_C(val) val##U
+#define INT32_C(val) val##L
+#define UINT32_C(val) val##UL
 #define INT64_C(val) val##LL
 #define UINT64_C(val) val##ULL
 
@@ -205,7 +220,6 @@ typedef unsigned long long uintmax_t;
 #define INTMAX_C(val)  INT64_C(val)
 #define UINTMAX_C(val) UINT64_C(val)
 
-
-#endif  /* !defined ( __cplusplus) || defined __STDC_CONSTANT_MACROS */
+//#endif  /* !defined ( __cplusplus) || defined __STDC_CONSTANT_MACROS */
 
 #endif
