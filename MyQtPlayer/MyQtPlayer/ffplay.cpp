@@ -1370,7 +1370,26 @@ static void stream_toggle_pause(VideoState *is)
     set_clock(&is->extclk, get_clock(&is->extclk), is->extclk.serial);
     is->paused = is->audclk.paused = is->vidclk.paused = is->extclk.paused = !is->paused;
 }
-
+void pause()
+{
+    stream_toggle_pause(g_pVS);
+    g_pVS->step = 0;
+}
+void seek(double frac)
+{ 
+	VideoState *is = g_pVS;
+    int64_t pos  = frac * is->ic->duration;
+	if (!is->seek_req)
+	{
+        is->seek_pos = pos;
+        is->seek_rel = 0;
+        is->seek_flags &= ~AVSEEK_FLAG_BYTE;
+        if (seek_by_bytes)
+            is->seek_flags |= AVSEEK_FLAG_BYTE;
+        is->seek_req = 1;
+        SDL_CondSignal(is->continue_read_thread);
+    }
+}
 static void toggle_pause(VideoState *is)
 {
     stream_toggle_pause(is);
@@ -3001,17 +3020,7 @@ int event_loop(void *arg)
                     stream_seek(cur_stream, size*x/cur_stream->width, 0, 1);
                 } else {
                     int64_t ts;
-                    int ns, hh, mm, ss;
-                    int tns, thh, tmm, tss;
-                    tns  = cur_stream->ic->duration / 1000000LL;
-                    thh  = tns / 3600;
-                    tmm  = (tns % 3600) / 60;
-                    tss  = (tns % 60);
                     frac = x / cur_stream->width;
-                    ns   = frac * tns;
-                    hh   = ns / 3600;
-                    mm   = (ns % 3600) / 60;
-                    ss   = (ns % 60);
                     ts = frac * cur_stream->ic->duration;
                     if (cur_stream->ic->start_time != AV_NOPTS_VALUE)
                         ts += cur_stream->ic->start_time;
