@@ -1,4 +1,6 @@
 #include <QWidget> 
+#include <qslider.h>
+
 #include <assert.h>
 #define CONFIG_AVFILTER 0
 
@@ -29,6 +31,7 @@ extern "C"
 #include <SDL2/SDL_thread.h>
 #include "cmdutils.h"
 };
+QSlider *g_slider;
 
 #define  av_gettime_relative av_gettime
 
@@ -1540,10 +1543,14 @@ retry:
             if (is->step && !is->paused)
                 stream_toggle_pause(is);
         }
-display:
+display:	
+
         /* display picture */
         if (is->force_refresh && is->show_mode == SHOW_MODE_VIDEO && is->pictq.rindex_shown)
             video_display(is);
+
+		int pos=1000*get_master_clock(is)/(is->ic->duration/1000000);
+		g_slider->setValue(pos);
     }
     is->force_refresh = 0;
 }
@@ -2904,6 +2911,11 @@ void playSeek(double frac)
         event.user.data1 = g_pVS;
         SDL_PushEvent(&event);
 	}
+}
+
+void playSetSlider(QSlider *slider)
+{
+	g_slider = slider;
 }
 
 int ffplay(char *fileName,  QWidget *widget)
