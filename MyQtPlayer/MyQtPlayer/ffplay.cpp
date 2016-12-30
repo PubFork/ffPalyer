@@ -1,4 +1,3 @@
-
 #include <QWidget> 
 #include <assert.h>
 #define CONFIG_AVFILTER 0
@@ -327,7 +326,9 @@ static int64_t audio_callback_time;
 static AVPacket flush_pkt;
 
 #define FF_ALLOC_EVENT   (SDL_USEREVENT)
-#define FF_QUIT_EVENT    (SDL_USEREVENT + 2)
+#define FF_PAUSE_EVENT	 (SDL_USEREVENT + 1)
+#define FF_SEEK_EVENT	 (SDL_USEREVENT + 2)
+#define FF_QUIT_EVENT    (SDL_USEREVENT + 3)
 
 static SDL_Window *window;
 static SDL_Renderer *renderer;
@@ -1358,26 +1359,7 @@ static void stream_toggle_pause(VideoState *is)
     set_clock(&is->extclk, get_clock(&is->extclk), is->extclk.serial);
     is->paused = is->audclk.paused = is->vidclk.paused = is->extclk.paused = !is->paused;
 }
-void pause()
-{
-    stream_toggle_pause(g_pVS);
-    g_pVS->step = 0;
-}
-void seek(double frac)
-{ 
-	VideoState *is = g_pVS;
-    int64_t pos  = frac * is->ic->duration;
-	if (!is->seek_req)
-	{
-        is->seek_pos = pos;
-        is->seek_rel = 0;
-        is->seek_flags &= ~AVSEEK_FLAG_BYTE;
-        if (seek_by_bytes)
-            is->seek_flags |= AVSEEK_FLAG_BYTE;
-        is->seek_req = 1;
-        SDL_CondSignal(is->continue_read_thread);
-    }
-}
+
 static void toggle_pause(VideoState *is)
 {
     stream_toggle_pause(is);
@@ -2820,201 +2802,6 @@ static void seek_chapter(VideoState *is, int incr)
                                  g_base_time), 0, 0);
 }
 
-/* handle an event sent by the GUI */
-int event_loop(void *arg)
-{
-	VideoState *cur_stream = (VideoState*)arg;
-    SDL_Event event;
-    double incr, pos, frac;
-
-    for (;;) {
-        double x;
-		if(cur_stream->looping)
-	        refresh_loop_wait_event(cur_stream, &event);
-		else
-			return 0;
-        switch (event.type) {
-        case SDL_KEYDOWN:
-            if (exit_on_keydown) {
-                do_exit(cur_stream);
-                break;
-            }
-            switch (event.key.keysym.sym) {
-            case SDLK_ESCAPE:
-            case SDLK_q:
-                do_exit(cur_stream);
-                break;
-            case SDLK_f:
-                toggle_full_screen(cur_stream);
-                cur_stream->force_refresh = 1;
-                break;
-            case SDLK_p:
-            case SDLK_SPACE:
-                toggle_pause(cur_stream);
-                break;
-            case SDLK_m:
-                toggle_mute(cur_stream);
-                break;
-            case SDLK_KP_MULTIPLY:
-            case SDLK_0:
-				update_volume(cur_stream, 1, SDL_VOLUME_STEP);
-                break;
-            case SDLK_KP_DIVIDE:
-            case SDLK_9:
-                update_volume(cur_stream, -1, SDL_VOLUME_STEP);
-                break;
-            case SDLK_s: // S: Step to next frame
-                step_to_next_frame(cur_stream);
-                break;
-            case SDLK_a:
-                stream_cycle_channel(cur_stream, AVMEDIA_TYPE_AUDIO);
-                break;
-            case SDLK_v:
-                stream_cycle_channel(cur_stream, AVMEDIA_TYPE_VIDEO);
-                break;
-            case SDLK_c:
-                stream_cycle_channel(cur_stream, AVMEDIA_TYPE_VIDEO);
-                stream_cycle_channel(cur_stream, AVMEDIA_TYPE_AUDIO);
-                stream_cycle_channel(cur_stream, AVMEDIA_TYPE_SUBTITLE);
-                break;
-            case SDLK_t:
-                stream_cycle_channel(cur_stream, AVMEDIA_TYPE_SUBTITLE);
-                break;
-            case SDLK_w:
-#if CONFIG_AVFILTER
-                if (cur_stream->show_mode == SHOW_MODE_VIDEO && cur_stream->vfilter_idx < nb_vfilters - 1) {
-                    if (++cur_stream->vfilter_idx >= nb_vfilters)
-                        cur_stream->vfilter_idx = 0;
-                } else {
-                    cur_stream->vfilter_idx = 0;
-                    toggle_audio_display(cur_stream);
-                }
-#else
-                toggle_audio_display(cur_stream);
-#endif
-                break;
-            case SDLK_PAGEUP:
-                if (cur_stream->ic->nb_chapters <= 1) {
-                    incr = 600.0;
-                    goto do_seek;
-                }
-                seek_chapter(cur_stream, 1);
-                break;
-            case SDLK_PAGEDOWN:
-                if (cur_stream->ic->nb_chapters <= 1) {
-                    incr = -600.0;
-                    goto do_seek;
-                }
-                seek_chapter(cur_stream, -1);
-                break;
-            case SDLK_LEFT:
-                incr = -10.0;
-                goto do_seek;
-            case SDLK_RIGHT:
-                incr = 10.0;
-                goto do_seek;
-            case SDLK_UP:
-                incr = 60.0;
-                goto do_seek;
-            case SDLK_DOWN:
-                incr = -60.0;
-            do_seek:
-                    if (seek_by_bytes) {
-                        pos = -1;
-                        if (pos < 0 && cur_stream->video_stream >= 0)
-                            pos = frame_queue_last_pos(&cur_stream->pictq);
-                        if (pos < 0 && cur_stream->audio_stream >= 0)
-                            pos = frame_queue_last_pos(&cur_stream->sampq);
-                        if (pos < 0)
-                            pos = avio_tell(cur_stream->ic->pb);
-                        if (cur_stream->ic->bit_rate)
-                            incr *= cur_stream->ic->bit_rate / 8.0;
-                        else
-                            incr *= 180000.0;
-                        pos += incr;
-                        stream_seek(cur_stream, pos, incr, 1);
-                    } else {
-                        pos = get_master_clock(cur_stream);
-                        if (isnan(pos))
-                            pos = (double)cur_stream->seek_pos / AV_TIME_BASE;
-                        pos += incr;
-                        if (cur_stream->ic->start_time != AV_NOPTS_VALUE && pos < cur_stream->ic->start_time / (double)AV_TIME_BASE)
-                            pos = cur_stream->ic->start_time / (double)AV_TIME_BASE;
-                        stream_seek(cur_stream, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
-                    }
-                break;
-            default:
-                break;
-            }
-            break;
-        case SDL_MOUSEBUTTONDOWN:
-            if (exit_on_mousedown) {
-                do_exit(cur_stream);
-                break;
-            }
-            if (event.button.button == SDL_BUTTON_LEFT) {
-                static int64_t last_mouse_left_click = 0;
-                if (av_gettime_relative() - last_mouse_left_click <= 500000) {
-                    toggle_full_screen(cur_stream);
-                    cur_stream->force_refresh = 1;
-                    last_mouse_left_click = 0;
-                } else {
-                    last_mouse_left_click = av_gettime_relative();
-                }
-            }
-        case SDL_MOUSEMOTION:
-            if (cursor_hidden) {
-                SDL_ShowCursor(1);
-                cursor_hidden = 0;
-            }
-            cursor_last_shown = av_gettime_relative();
-            if (event.type == SDL_MOUSEBUTTONDOWN) {
-                if (event.button.button != SDL_BUTTON_RIGHT)
-                    break;
-                x = event.button.x;
-            } else {
-                if (!(event.motion.state & SDL_BUTTON_RMASK))
-                    break;
-                x = event.motion.x;
-            }
-                if (seek_by_bytes || cur_stream->ic->duration <= 0) {
-                    uint64_t size =  avio_size(cur_stream->ic->pb);
-                    stream_seek(cur_stream, size*x/cur_stream->width, 0, 1);
-                } else {
-                    int64_t ts;
-                    frac = x / cur_stream->width;
-                    ts = frac * cur_stream->ic->duration;
-                    if (cur_stream->ic->start_time != AV_NOPTS_VALUE)
-                        ts += cur_stream->ic->start_time;
-                    stream_seek(cur_stream, ts, 0, 0);
-                }
-            break;
-        case SDL_WINDOWEVENT:
-            switch (event.window.event) {
-                case SDL_WINDOWEVENT_RESIZED:
-                    int w, h;
-					SDL_SetWindowSize(window, FFMIN(16383, (int)event.window.data1), (int)event.window.data2);
-					SDL_SetWindowFullscreen(window, (is_full_screen?SDL_WINDOW_FULLSCREEN:0)); 
-					SDL_GetWindowSize(window, &w, &h);
-					cur_stream->width  = w;
-					cur_stream->height = h;
-                case SDL_WINDOWEVENT_EXPOSED:
-                    cur_stream->force_refresh = 1;
-            }
-            break;
-        case SDL_QUIT:
-        case FF_QUIT_EVENT:
-            do_exit(cur_stream);
-            break;
-        case FF_ALLOC_EVENT:
-            alloc_picture((VideoState*)event.user.data1);
-            break;
-        default:
-            break;
-        }
-    }
-}
-
 static int lockmgr(void **mtx, enum AVLockOp op)
 {
    switch(op) {
@@ -3035,6 +2822,57 @@ static int lockmgr(void **mtx, enum AVLockOp op)
    return 1;
 }
 
+/* handle an event sent by the GUI */
+int event_loop(void *arg)
+{
+	VideoState *cur_stream = (VideoState*)arg;
+    SDL_Event event;
+    double incr, pos, frac;
+
+    for (;;) {
+        double x;
+		if(cur_stream->looping)
+	        refresh_loop_wait_event(cur_stream, &event);
+		else
+			return 0;
+        switch (event.type) 
+		{
+        case SDL_WINDOWEVENT:
+            switch (event.window.event) {
+                case SDL_WINDOWEVENT_RESIZED:
+                    int w, h;
+					SDL_SetWindowSize(window, FFMIN(16383, (int)event.window.data1), (int)event.window.data2);
+					SDL_SetWindowFullscreen(window, (is_full_screen?SDL_WINDOW_FULLSCREEN:0)); 
+					SDL_GetWindowSize(window, &w, &h);
+					cur_stream->width  = w;
+					cur_stream->height = h;
+                case SDL_WINDOWEVENT_EXPOSED:
+                    cur_stream->force_refresh = 1;
+            }
+            break;
+        case FF_ALLOC_EVENT:
+            alloc_picture((VideoState*)event.user.data1);
+            break;
+		case FF_SEEK_EVENT:
+			{
+				VideoState* val1 = (VideoState*)event.user.data1;
+				int64_t pos = event.user.code;
+
+				stream_seek(val1, pos, 0, 0);
+			}
+			break;
+		case FF_PAUSE_EVENT:
+			{
+				VideoState* val1 = (VideoState*)event.user.data1;
+				toggle_pause(val1);
+			}
+			break;
+        default:
+            break;
+        }
+    }
+}
+
 void stopPlay()
 {
 	if(g_pVS)
@@ -3044,7 +2882,30 @@ void stopPlay()
 	}	
 }
 
-#include <QWidget> 
+void playPause()
+{
+	if(g_pVS)
+	{
+		SDL_Event event;
+        event.type = FF_PAUSE_EVENT;
+        event.user.data1 = g_pVS;
+        SDL_PushEvent(&event);
+	}
+}
+
+void playSeek(double frac)
+{ 
+	if(g_pVS)
+	{
+		SDL_Event event;
+        event.type = FF_SEEK_EVENT;
+		int64_t pos = frac * g_pVS->ic->duration;
+		event.user.code = pos;
+        event.user.data1 = g_pVS;
+        SDL_PushEvent(&event);
+	}
+}
+
 int ffplay(char *fileName,  QWidget *widget)
 {
 	int flags;
