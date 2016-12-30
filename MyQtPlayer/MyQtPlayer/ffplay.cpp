@@ -282,7 +282,9 @@ typedef struct VideoState {
 
     int last_video_stream, last_audio_stream, last_subtitle_stream;
 
-    SDL_cond *continue_read_thread;
+    SDL_cond *continue_read_thread; 
+	int looping;
+	SDL_Thread *loop_tid;
 } VideoState;
 VideoState *g_pVS;
 
@@ -1150,6 +1152,8 @@ static void stream_close(VideoState *is)
 {
     /* XXX: use a special url_shutdown call to abort parse cleanly */
     is->abort_request = 1;
+	is->looping = 0;
+	SDL_WaitThread(is->loop_tid, NULL);
     SDL_WaitThread(is->read_tid, NULL);
 
     /* close each stream */
@@ -1183,8 +1187,9 @@ static void stream_close(VideoState *is)
 
 static void do_exit(VideoState *is)
 {
-    if (is) {
-        stream_close(is);
+    if (g_pVS) {
+        stream_close(g_pVS);
+		g_pVS = NULL;
     }
     if (renderer)
         SDL_DestroyRenderer(renderer);
@@ -1196,12 +1201,6 @@ static void do_exit(VideoState *is)
 #endif
     avformat_network_deinit();
     SDL_Quit();
-    exit(0);
-}
-
-static void sigterm_handler(int sig)
-{
-    exit(123);
 }
 
 static int video_open(VideoState *is, Frame *vp)
@@ -2780,7 +2779,7 @@ static void toggle_audio_display(VideoState *is)
 static void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
     double remaining_time = 0.0;
     SDL_PumpEvents();
-    while (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
+	while (is->looping && !SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
         if (!cursor_hidden && av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
             SDL_ShowCursor(0);
             cursor_hidden = 1;
@@ -2830,7 +2829,10 @@ int event_loop(void *arg)
 
     for (;;) {
         double x;
-        refresh_loop_wait_event(cur_stream, &event);
+		if(cur_stream->looping)
+	        refresh_loop_wait_event(cur_stream, &event);
+		else
+			return 0;
         switch (event.type) {
         case SDL_KEYDOWN:
             if (exit_on_keydown) {
@@ -3033,22 +3035,28 @@ static int lockmgr(void **mtx, enum AVLockOp op)
    return 1;
 }
 
-/* Called from the main */
+void stopPlay()
+{
+	if(g_pVS)
+	{
+		do_exit(g_pVS);
+		g_pVS = NULL;
+	}	
+}
+
 #include <QWidget> 
 int ffplay(char *fileName,  QWidget *widget)
 {
-     int flags;
+	int flags;
+	if (!fileName)
+	{
+		printf("file error");
+		return -1;
+    }
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
     av_register_all();
     avformat_network_init();
-    signal(SIGINT , sigterm_handler); /* Interrupt (ANSI).    */
-    signal(SIGTERM, sigterm_handler); /* Termination (ANSI).  */
-    if (!fileName)
-	{
-		printf("file error");
-
-        exit(1);
-    }
+   
     flags =  SDL_INIT_EVERYTHING;
     if (SDL_Init (flags))
 	{
@@ -3078,7 +3086,8 @@ int ffplay(char *fileName,  QWidget *widget)
 	{
 		return -1;
     }
-    SDL_Thread *loop  = SDL_CreateThread(event_loop, "event_loop", g_pVS);
+	g_pVS->looping = 1;
+	g_pVS->loop_tid = SDL_CreateThread(event_loop, "event_loop", g_pVS);
 
     return 0;
 }
