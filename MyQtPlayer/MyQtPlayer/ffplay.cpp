@@ -79,9 +79,6 @@ QSlider *g_slider;
 
 #define USE_ONEPASS_SUBTITLE_RENDER 1
 
-
-const AVRational g_base_time =  {1, AV_TIME_BASE}; 
-
 static unsigned sws_flags = SWS_BICUBIC;
 
 static av_always_inline av_const int isnan(float x)
@@ -239,6 +236,10 @@ typedef struct VideoState {
 #endif
     struct AudioParams audio_tgt;
     struct SwrContext *swr_ctx;
+	
+	double audio_current_pts;//progress 
+	double audio_current_pts_drift;
+
     int frame_drops_early;
     int frame_drops_late;
 
@@ -1238,6 +1239,16 @@ static void video_display(VideoState *is)
     SDL_RenderPresent(renderer);
 }
 
+/* get the current audio clock value */
+static double get_audio_clock(VideoState *is)
+{
+	if (is->paused) {
+		return is->audio_current_pts;
+	} else {
+		return is->audio_current_pts_drift + av_gettime() / 1000000.0;
+	}
+}
+
 static double get_clock(Clock *c)
 {
     if (*c->queue_serial != c->serial)
@@ -1312,7 +1323,8 @@ static double get_master_clock(VideoState *is)
             val = get_clock(&is->vidclk);
             break;
         case AV_SYNC_AUDIO_MASTER:
-            val = get_clock(&is->audclk);
+            //val = get_clock(&is->audclk);
+			val = get_audio_clock(is);
             break;
         default:
             val = get_clock(&is->extclk);
@@ -1549,8 +1561,15 @@ display:
         if (is->force_refresh && is->show_mode == SHOW_MODE_VIDEO && is->pictq.rindex_shown)
             video_display(is);
 
-		int pos=1000*get_master_clock(is)/(is->ic->duration/1000000);
+		int pos=100*get_master_clock(is)/(is->ic->duration/1000000);
+		pos = 100 * get_clock(&is->vidclk) / (is->ic->duration / 1000000);
+
 		g_slider->setValue(pos);
+		int tns, thh, tmm, tss;
+			tns  = get_master_clock(is);
+			thh  = tns / 3600;
+			tmm  = (tns % 3600) / 60;
+			tss  = (tns % 60);
     }
     is->force_refresh = 0;
 }
@@ -1950,7 +1969,8 @@ static int synchronize_audio(VideoState *is, int nb_samples)
         double diff, avg_diff;
         int min_nb_samples, max_nb_samples;
 
-        diff = get_clock(&is->audclk) - get_master_clock(is);
+       // diff = get_clock(&is->audclk) - get_master_clock(is);
+		diff = get_audio_clock(is) - get_master_clock(is);
 
         if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD) {
             is->audio_diff_cum = diff + is->audio_diff_avg_coef * is->audio_diff_cum;
@@ -2069,7 +2089,13 @@ static int audio_decode_frame(VideoState *is)
     if (!isnan(af->pts))
         is->audio_clock = af->pts + (double) af->frame->nb_samples / af->frame->sample_rate;
     else
-        is->audio_clock = NAN;
+	{
+		AVCodecContext *dec = is->audio_st->codec;
+		double pts = is->audio_clock;
+		double pts_ptr = pts;
+		is->audio_clock += (double)data_size / (dec->channels * dec->sample_rate * av_get_bytes_per_sample(dec->sample_fmt));
+        //is->audio_clock = NAN;
+	}
     is->audio_clock_serial = af->serial;
 #ifdef DEBUG
     {
@@ -2125,6 +2151,8 @@ static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
         set_clock_at(&is->audclk, is->audio_clock - (double)(2 * is->audio_hw_buf_size + is->audio_write_buf_size) / is->audio_tgt.bytes_per_sec, is->audio_clock_serial, audio_callback_time / 1000000.0);
         sync_clock_to_slave(&is->extclk, &is->audclk);
     }
+	is->audio_current_pts = is->audio_clock - (double)(2 * is->audio_hw_buf_size + is->audio_write_buf_size) /is->audio_tgt.bytes_per_sec;
+	is->audio_current_pts_drift = is->audio_current_pts - audio_callback_time / 1000000.0;
 }
 
 static int audio_open(void *opaque, int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate, struct AudioParams *audio_hw_params)
@@ -2782,33 +2810,6 @@ static void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
     }
 }
 
-static void seek_chapter(VideoState *is, int incr)
-{
-    int64_t pos = get_master_clock(is) * AV_TIME_BASE;
-    int i;
-
-    if (!is->ic->nb_chapters)
-        return;
-
-    /* find the current chapter */
-    for (i = 0; i < is->ic->nb_chapters; i++) {
-        AVChapter *ch = is->ic->chapters[i];
-        if (av_compare_ts(pos, g_base_time, ch->start, ch->time_base) < 0) {
-            i--;
-            break;
-        }
-    }
-
-    i += incr;
-    i = FFMAX(i, 0);
-    if (i >= is->ic->nb_chapters)
-        return;
-
-    av_log(NULL, AV_LOG_VERBOSE, "Seeking to chapter %d.\n", i);
-    stream_seek(is, av_rescale_q(is->ic->chapters[i]->start, is->ic->chapters[i]->time_base,
-                                 g_base_time), 0, 0);
-}
-
 static int lockmgr(void **mtx, enum AVLockOp op)
 {
    switch(op) {
@@ -2902,6 +2903,7 @@ void playPause()
 
 void playSeek(double frac)
 { 
+	return;
 	if(g_pVS)
 	{
 		SDL_Event event;
