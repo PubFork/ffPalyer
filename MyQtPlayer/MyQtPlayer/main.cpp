@@ -1,9 +1,10 @@
 
 #include <QApplication> 
 #include <QWidget> 
+#include <qpushbutton.h>
 #include <phonon> 
 #include <QUrl> 
-#include "ffplay.h"
+#include "controlbtn.h"
 
 
 #define USE_FF_PLAY 1
@@ -17,10 +18,12 @@ int main(int argc, char * argv[])
   QWidget *widget = new QWidget; 
   widget->setWindowTitle("Video Player"); 
   widget->resize(800,400); 
+
+  ControlBtn *show = new ControlBtn(widget);
+
   widget->show(); 
 
 #if USE_FF_PLAY
-	ffplay("video.mp4", widget);
 
 #else
   Phonon::VideoPlayer *player = new Phonon::VideoPlayer(Phonon::VideoCategory, widget); 
@@ -28,6 +31,7 @@ int main(int argc, char * argv[])
 
   player->play(); 
 #endif
+
 
   return app.exec(); 
 }

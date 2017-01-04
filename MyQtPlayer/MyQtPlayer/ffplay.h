@@ -2,8 +2,10 @@
 #define __FFPLAY_H__
 
 #include <QWidget> 
-   
-void playSetSlider(QSlider *slider);
+class ControlBtn;
+
+
+void playSetCtl(ControlBtn* ctl);
 int ffplay(char *fileName,  QWidget *widget);
 void playPause();
 void playSeek(double frac);

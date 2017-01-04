@@ -31,7 +31,10 @@ extern "C"
 #include <SDL2/SDL_thread.h>
 #include "cmdutils.h"
 };
-QSlider *g_slider;
+#include "ffplay.h"
+#include "controlbtn.h"
+
+ControlBtn* g_ctl;
 
 #define  av_gettime_relative av_gettime
 
@@ -1548,8 +1551,10 @@ display:
             video_display(is);
 
 		int pos = 100 * get_clock(&is->vidclk) / (is->ic->duration / 1000000);
-
-		g_slider->setValue(pos);
+		if(g_ctl)
+		{
+			g_ctl->changeSlider(pos);
+		}
     }
     is->force_refresh = 0;
 }
@@ -2876,7 +2881,6 @@ void playPause()
 
 void playSeek(double frac)
 { 
-	return;
 	if(g_pVS)
 	{
 		SDL_Event event;
@@ -2888,9 +2892,9 @@ void playSeek(double frac)
 	}
 }
 
-void playSetSlider(QSlider *slider)
+void playSetCtl(ControlBtn* ctl)
 {
-	g_slider = slider;
+	g_ctl = ctl;
 }
 
 int ffplay(char *fileName,  QWidget *widget)
