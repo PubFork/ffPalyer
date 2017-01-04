@@ -1550,11 +1550,6 @@ display:
 		int pos = 100 * get_clock(&is->vidclk) / (is->ic->duration / 1000000);
 
 		g_slider->setValue(pos);
-		int tns, thh, tmm, tss;
-			tns  = get_master_clock(is);
-			thh  = tns / 3600;
-			tmm  = (tns % 3600) / 60;
-			tss  = (tns % 60);
     }
     is->force_refresh = 0;
 }
