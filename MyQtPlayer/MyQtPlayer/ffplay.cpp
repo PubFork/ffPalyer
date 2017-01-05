@@ -1545,7 +1545,8 @@ display:
         if (is->force_refresh && is->show_mode == SHOW_MODE_VIDEO && is->pictq.rindex_shown)
             video_display(is);
 
-		int pos = 1000 * get_clock(&is->vidclk) / (is->ic->duration / 1000000);
+		//int pos = 1000 * get_clock(&is->vidclk) / (is->ic->duration / 1000000);
+		int pos = 1000 * get_master_clock(is) / (is->ic->duration / 1000000);
 		if(g_ctl)
 		{
 			g_ctl->changeSlider(pos);
