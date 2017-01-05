@@ -569,11 +569,11 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub) {
             case AVMEDIA_TYPE_AUDIO:
                 ret = avcodec_decode_audio4(d->avctx, frame, &got_frame, &d->pkt_temp);
                 if (got_frame) {
-                    AVRational tb;// = (AVRational){1, frame->sample_rate};
-					tb.den = 1;
-					tb.num = frame->sample_rate;
-                    if (frame->pts != AV_NOPTS_VALUE)
-                        frame->pts = av_rescale_q(frame->pts, av_codec_get_pkt_timebase(d->avctx), tb);
+                    AVRational tb;
+					tb.num = 1;
+					tb.den = frame->sample_rate;
+                    if (frame->pts == AV_NOPTS_VALUE)
+                        frame->pts = av_rescale_q(frame->pkt_pts, av_codec_get_pkt_timebase(d->avctx), tb);
                     else if (d->next_pts != AV_NOPTS_VALUE)
                         frame->pts = av_rescale_q(d->next_pts, d->next_pts_tb, tb);
                     if (frame->pts != AV_NOPTS_VALUE) {
@@ -1698,9 +1698,8 @@ static int audio_thread(void *arg)
             goto the_end;
 
         if (got_frame) {
-                //tb = (AVRational){1, frame->sample_rate};
-				tb.den = 1;
-				tb.num = frame->sample_rate;
+				tb.num = 1;
+				tb.den = frame->sample_rate;
 #if CONFIG_AVFILTER
                 dec_channel_layout = get_valid_channel_layout(frame->channel_layout, av_frame_get_channels(frame));
 
@@ -2928,16 +2927,20 @@ int ffplay(char *fileName,  QWidget *widget)
 	{
 		window = SDL_CreateWindowFrom((void*)widget->winId());
 		if (!window) {
-			do_exit(g_pVS);
+			return -2;
 		}
 		renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE); 
+		if(!renderer)
+		{
+			return -3;
+		}
 	}
 
     SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
     SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
     if (av_lockmgr_register(lockmgr)) 
 	{
-        do_exit(NULL);
+		return -4;
 	}
     av_init_packet(&flush_pkt);
     flush_pkt.data = (uint8_t *)&flush_pkt;
