@@ -572,7 +572,7 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub) {
                     AVRational tb;
 					tb.num = 1;
 					tb.den = frame->sample_rate;
-                    if (frame->pts == AV_NOPTS_VALUE)
+                    if (frame->pkt_pts != AV_NOPTS_VALUE)
                         frame->pts = av_rescale_q(frame->pkt_pts, av_codec_get_pkt_timebase(d->avctx), tb);
                     else if (d->next_pts != AV_NOPTS_VALUE)
                         frame->pts = av_rescale_q(d->next_pts, d->next_pts_tb, tb);
@@ -1545,7 +1545,6 @@ display:
         if (is->force_refresh && is->show_mode == SHOW_MODE_VIDEO && is->pictq.rindex_shown)
             video_display(is);
 
-		//int pos = 1000 * get_clock(&is->vidclk) / (is->ic->duration / 1000000);
 		int pos = 1000 * get_master_clock(is) / (is->ic->duration / 1000000);
 		if(g_ctl)
 		{
