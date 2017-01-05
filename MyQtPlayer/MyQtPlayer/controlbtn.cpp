@@ -14,55 +14,33 @@ ControlBtn::ControlBtn(QWidget *parent)
 	
 	connect(ui.ctlSlider, SIGNAL(valueChanged(int)), this, SLOT(slot_SliderChanged(int)));	
 	connect(this, SIGNAL(signal_playProgress(int)), ui.ctlSlider, SLOT(setValue(int)));
-	mPlayView = NULL;
 }
 
 ControlBtn::~ControlBtn()
 {
 	stopPlay();
-	if(mPlayView)
-	{
-		delete mPlayView;
-		mPlayView = NULL;
-	}
 }
 
 void ControlBtn::slot_btnPlayClicked()
 {	
 	stopOthers();
-	ffplay("video.mp4", mPlayView);
+	ffplay("video.mp4", ui.viewPlay);
 }
 	
 void ControlBtn::slot_btnNextClicked()
 {
 	stopOthers();
-	ffplay("video2.mp4", mPlayView);
+	ffplay("video2.mp4", ui.viewPlay);
 }
 
 void ControlBtn::stopOthers()
 {
 	stopPlay();
 	playSetCtl(this);
-	if(mPlayView)
-	{
-		delete mPlayView;
-		mPlayView = NULL;
-	}
-	if(!mPlayView)
-	{
-		mPlayView = new QWidget(this);
-		mPlayView->resize(800,200); 
-		mPlayView->show(); 
-	}
 }
 void ControlBtn::slot_btnStopClicked()
 {
 	stopPlay();
-	if(mPlayView)
-	{
-		delete mPlayView;
-		mPlayView = NULL;
-	}
 }
 
 void ControlBtn::slot_btnPauseClicked()
@@ -74,13 +52,13 @@ void ControlBtn::slot_SliderChanged(int val)
 {
 	if(m_nProcess != val)
 	{
-		playSeek((float)val / 100.0);
+		playSeek((float)val / 1000.0);
 	}
 }
 
 void ControlBtn::changeSlider(int pos)
 {
-	if(pos<=100 & pos >= 0)
+	if(pos<=1000 & pos >= 0)
 	{
 		if(m_nProcess != pos)
 		{

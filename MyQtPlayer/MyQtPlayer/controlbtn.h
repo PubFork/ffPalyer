@@ -28,7 +28,6 @@ void stopOthers();
 
 
 private:
-	QWidget *mPlayView;
 	Ui::ControlBtn ui;
 	int m_nProcess;
 };

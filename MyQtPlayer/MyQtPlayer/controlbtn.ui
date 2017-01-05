@@ -44,8 +44,8 @@
     <rect>
      <x>9</x>
      <y>9</y>
-     <width>101</width>
-     <height>41</height>
+     <width>341</width>
+     <height>201</height>
     </rect>
    </property>
   </widget>
@@ -70,6 +70,9 @@
      <width>160</width>
      <height>19</height>
     </rect>
+   </property>
+   <property name="maximum">
+    <number>999</number>
    </property>
    <property name="orientation">
     <enum>Qt::Horizontal</enum>

@@ -10,5 +10,6 @@ int ffplay(char *fileName,  QWidget *widget);
 void playPause();
 void playSeek(double frac);
 void stopPlay();
+void deleteView();
 
 #endif

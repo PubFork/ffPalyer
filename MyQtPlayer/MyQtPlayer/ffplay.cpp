@@ -1196,16 +1196,11 @@ static void do_exit(VideoState *is)
         stream_close(g_pVS);
 		g_pVS = NULL;
     }
-    if (renderer)
-        SDL_DestroyRenderer(renderer);
-    if (window)
-        SDL_DestroyWindow(window);
     av_lockmgr_register(NULL);
 #if CONFIG_AVFILTER
     av_freep(&vfilters_list);
 #endif
     avformat_network_deinit();
-    SDL_Quit();
 }
 
 static int video_open(VideoState *is, Frame *vp)
@@ -1550,7 +1545,7 @@ display:
         if (is->force_refresh && is->show_mode == SHOW_MODE_VIDEO && is->pictq.rindex_shown)
             video_display(is);
 
-		int pos = 100 * get_clock(&is->vidclk) / (is->ic->duration / 1000000);
+		int pos = 1000 * get_clock(&is->vidclk) / (is->ic->duration / 1000000);
 		if(g_ctl)
 		{
 			g_ctl->changeSlider(pos);
@@ -2895,6 +2890,20 @@ void playSeek(double frac)
 void playSetCtl(ControlBtn* ctl)
 {
 	g_ctl = ctl;
+}
+
+void deleteView()
+{
+	if (renderer)
+	{
+        SDL_DestroyRenderer(renderer);
+	}
+	if (window)
+	{
+        SDL_DestroyWindow(window);
+	}
+	
+	SDL_Quit();
 }
 
 int ffplay(char *fileName,  QWidget *widget)
