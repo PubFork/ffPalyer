@@ -1438,7 +1438,7 @@ static void video_refresh(void *opaque, double *remaining_time)
     if (!is->paused && get_master_sync_type(is) == AV_SYNC_EXTERNAL_CLOCK && is->realtime)
         check_external_clock_speed(is);
 
-    if (is->show_mode != SHOW_MODE_VIDEO && is->audio_st) {
+    if (!video_disable && is->show_mode != SHOW_MODE_VIDEO && is->audio_st) {
         time = av_gettime_relative() / 1000000.0;
         if (is->force_refresh || is->last_vis_time + rdftspeed < time) {
             video_display(is);
@@ -1539,12 +1539,11 @@ retry:
             if (is->step && !is->paused)
                 stream_toggle_pause(is);
         }
-display:	
-
+display:
         /* display picture */
-        if (is->force_refresh && is->show_mode == SHOW_MODE_VIDEO && is->pictq.rindex_shown)
+        if (!video_disable && is->force_refresh && is->show_mode == SHOW_MODE_VIDEO && is->pictq.rindex_shown)
             video_display(is);
-
+		
 		int pos = 1000 * get_master_clock(is) / (is->ic->duration / 1000000);
 		if(g_ctl)
 		{
@@ -2078,7 +2077,8 @@ static int video_thread(void *arg)
             tb = filt_out->inputs[0]->time_base;
 #endif
 			AVRational tmp = {frame->nb_samples, frame->sample_rate};
-            duration = (frame_rate.num && frame_rate.den ? av_q2d(tmp) : 0);
+            //duration = (frame_rate.num && frame_rate.den ? av_q2d(tmp) : 0);
+			duration = (frame->pkt_duration == AV_NOPTS_VALUE) ? NAN : frame->pkt_duration * av_q2d(tb);//use duration
             pts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(tb);
             ret = queue_picture(is, frame, pts, duration, av_frame_get_pkt_pos(frame), is->viddec.pkt_serial);
             av_frame_unref(frame);
@@ -2299,7 +2299,7 @@ static int audio_decode_frame(VideoState *is)
 /* prepare a new audio buffer */
 static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
 {
-    VideoState *is = (VideoState*)opaque;
+   VideoState *is = (VideoState *)opaque;
     int audio_size, len1;
 
     audio_callback_time = av_gettime_relative();
