@@ -2315,6 +2315,11 @@ static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
                if (is->show_mode != SHOW_MODE_VIDEO)
                    update_sample_display(is, (int16_t *)is->audio_buf, audio_size);
                is->audio_buf_size = audio_size;
+			   	if (!isnan(is->audio_clock) && is->audio_clock > 0)
+				{
+					 set_clock_at(&is->audclk, is->audio_clock - (double)(2 * audio_size) / is->audio_tgt.bytes_per_sec, is->audio_clock_serial, audio_callback_time / 1000000.0);
+					 sync_clock_to_slave(&is->extclk, &is->audclk);
+				}
            }
            is->audio_buf_index = 0;
         }
@@ -2334,7 +2339,8 @@ static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
     }
     is->audio_write_buf_size = is->audio_buf_size - is->audio_buf_index;
     /* Let's assume the audio driver that is used by SDL has two periods. */
-    if (!isnan(is->audio_clock)) {
+	if (!isnan(is->audio_clock))
+	{
         set_clock_at(&is->audclk, is->audio_clock - (double)(2 * is->audio_hw_buf_size + is->audio_write_buf_size) / is->audio_tgt.bytes_per_sec, is->audio_clock_serial, audio_callback_time / 1000000.0);
         sync_clock_to_slave(&is->extclk, &is->audclk);
     }
