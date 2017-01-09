@@ -93,6 +93,24 @@ const AVRational g_base_time =  {1, AV_TIME_BASE}; // g_base_time;
 #define CURSOR_HIDE_DELAY 1000000
 
 
+static void myLog(char *fmt, ...)
+{
+	va_list ap;
+	char log[1024] = { 0 };
+
+	va_start(ap, fmt);
+	vsprintf(log, fmt, ap);
+	va_end(ap);
+
+	SYSTEMTIME sys;
+	GetLocalTime( &sys );
+	char chTimes[64]={0};
+	//sprintf(chTimes,"%04d-%02d-%02d %02d:%02d:%02d.%03d", sys.wYear, sys.wMonth, sys.wDay, sys.wHour, sys.wMinute, sys.wSecond,sys.wMilliseconds);
+	CHAR outBuf[1024];
+	sprintf(outBuf, "%s %s\n", chTimes, log);
+	OutputDebugStringA((LPCSTR)outBuf);
+}
+
 AVRational make_AVR(int num,int den)
 {
 	AVRational ret= {num,den};
@@ -1066,7 +1084,7 @@ static void stream_close(VideoState *is)
 	SDL_UnlockMutex(is->loopingLock);
 
 	SDL_WaitThread(is->loop_tid, NULL);
-	OutputDebugStringA((LPCSTR)"is->loop_tid ended!!!\n");
+	myLog("is->loop_tid ended!!!\n");
 
     if (is->ic){
 		SDL_WaitThread(is->read_tid, NULL);   // modify
@@ -1537,11 +1555,9 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
         vp->reallocate = 0;
         vp->width = src_frame->width;
         vp->height = src_frame->height;
-		
-	char buf[256];
-	char *log = "pushEvent.......................\n";
-	sprintf(buf, "%s %s", g_pVS->filename, log);
-	OutputDebugStringA((LPCSTR)buf);
+
+	char *log = "pushEvent:FF_ALLOC_EVENT.......................\n";
+	myLog("%s %s", g_pVS->filename, log);
         /* the allocation must be done in the main thread to avoid
            locking problems. */
         event.type = FF_ALLOC_EVENT;
@@ -2747,10 +2763,8 @@ int event_loop(void *arg)
 {
 	VideoState *cur_stream = (VideoState*)arg;
 	
-	char buf[256];
 	char *log = "in looping.......................\n";
-	sprintf(buf, "%s %s", g_pVS->filename, log);
-	OutputDebugStringA((LPCSTR)buf);
+	myLog("%s %s", g_pVS->filename, log);
 
     SDL_Event event;
     double incr, pos, frac;
@@ -2801,8 +2815,7 @@ int event_loop(void *arg)
         }
     }
 	log = "out looping.........................\n";
-	sprintf(buf, "%s %s", g_pVS->filename, log);
-	OutputDebugStringA((LPCSTR)buf);
+	myLog("%s %s", g_pVS->filename, log);
 	return 0;
 }
 
