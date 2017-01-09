@@ -588,10 +588,9 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub) {
             case AVMEDIA_TYPE_AUDIO:
                 ret = avcodec_decode_audio4(d->avctx, frame, &got_frame, &d->pkt_temp);
                 if (got_frame) {
-                    //AVRational tb = (AVRational){1, frame->sample_rate};
-					AVRational tb;
-					tb.den = 1;
-					tb.num = frame->sample_rate;
+                    AVRational tb;
+					tb.num = 1;
+					tb.den = frame->sample_rate;
                     if (frame->pts != AV_NOPTS_VALUE)
                         frame->pts = av_rescale_q(frame->pts, d->avctx->time_base, tb);
                     else if (frame->pkt_pts != AV_NOPTS_VALUE)
@@ -1088,11 +1087,6 @@ static void do_exit(VideoState *is)
     avformat_network_deinit();
 }
 
-static void sigterm_handler(int sig)
-{
-    exit(123);
-}
-
 static int video_open(VideoState *is, int force_set_video_mode, Frame *vp)
 {
     int flags = 0;
@@ -1459,7 +1453,7 @@ static int do_scale_picture(VideoState *is, Frame *vp, AVFrame *src_frame)
 			AV_PIX_FMT_YUV420P, sws_flags, NULL, NULL, NULL);
 	if (!is->img_convert_ctx) {
 		av_log(NULL, AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-		exit(1);
+		return 1;
 	}
 	sws_scale(is->img_convert_ctx, src_frame->data, src_frame->linesize,
 			0, vp->height, pict->data, pict->linesize);
@@ -1615,8 +1609,8 @@ static int audio_thread(void *arg)
 
         if (got_frame) {
                 //tb = (AVRational){1, frame->sample_rate};
-				tb.den = 1;
-				tb.num = frame->sample_rate;
+				tb.num = 1;
+				tb.den = frame->sample_rate;
 #if CONFIG_AVFILTER
                 dec_channel_layout = get_valid_channel_layout(frame->channel_layout, av_frame_get_channels(frame));
 
@@ -2668,7 +2662,7 @@ static void toggle_audio_display(VideoState *is)
 static void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
     double remaining_time = 0.0;
     SDL_PumpEvents();
-    while (!SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
+    while (is->looping && !SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
         if (!cursor_hidden && av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
             SDL_ShowCursor(0);
             cursor_hidden = 1;
@@ -2708,7 +2702,6 @@ static void seek_chapter(VideoState *is, int incr)
     stream_seek(is, av_rescale_q(is->ic->chapters[i]->start, is->ic->chapters[i]->time_base,
                                  g_base_time), 0, 0);
 }
-
 
 static int lockmgr(void **mtx, enum AVLockOp op)
 {
@@ -2832,7 +2825,6 @@ void deleteView()
 	
 	SDL_Quit();
 }
-
 
 int ffplay(char *fileName,  QWidget *widget)
 {
