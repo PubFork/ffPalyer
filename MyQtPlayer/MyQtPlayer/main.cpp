@@ -19,7 +19,27 @@ int main(int argc, char * argv[])
   widget->setWindowTitle("Video Player"); 
   widget->resize(800,400); 
 
-  ControlBtn *show = new ControlBtn(widget);
+
+  //begin layout
+    QVBoxLayout *verticalLayout = new QVBoxLayout(widget);
+        verticalLayout->setSpacing(6);
+        verticalLayout->setContentsMargins(11, 11, 11, 11);
+        verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
+
+		
+  ControlBtn *showView = new ControlBtn(widget);
+
+
+  QSizePolicy sizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        sizePolicy.setHorizontalStretch(0);
+        sizePolicy.setVerticalStretch(0);
+        sizePolicy.setHeightForWidth(showView->sizePolicy().hasHeightForWidth());
+        showView->setSizePolicy(sizePolicy);
+
+		
+        verticalLayout->addWidget(showView);
+		//
+
 
   widget->show(); 
 
