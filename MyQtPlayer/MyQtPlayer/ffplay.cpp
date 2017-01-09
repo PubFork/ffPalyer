@@ -1521,6 +1521,8 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 
 		free_picture(vp);
 		video_open(is, 0, vp);
+		vp->width = src->width;
+		vp->height = src->height;
 
 		vp->bmp = SDL_CreateTexture(render, SDL_PIXELFORMAT_IYUV,
 				SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
@@ -1549,37 +1551,7 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
 
     /* alloc, resize or scale hardware picture buffer */
 	{
-        SDL_Event event;
-
-        vp->allocated  = 0;
-        vp->reallocate = 0;
-        vp->width = src_frame->width;
-        vp->height = src_frame->height;
-
-	char *log = "pushEvent:FF_ALLOC_EVENT.......................\n";
-	myLog("%s %s", g_pVS->filename, log);
-        /* the allocation must be done in the main thread to avoid
-           locking problems. */
-        event.type = FF_ALLOC_EVENT;
-        event.user.data1 = is;
-		event.user.data2 = src_frame;
-        SDL_PushEvent(&event);
-
-        /* wait until the picture is allocated */
-        SDL_LockMutex(is->pictq.mutex);
-        while (!vp->allocated && !is->videoq.abort_request) {
-            SDL_CondWait(is->pictq.cond, is->pictq.mutex);
-        }
-        /* if the queue is aborted, we have to pop the pending ALLOC event or wait for the allocation to complete */
-        if (is->videoq.abort_request && SDL_PeepEvents(&event, 1, SDL_ADDEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) != 1) {
-            while (!vp->allocated && !is->abort_request) {
-                SDL_CondWait(is->pictq.cond, is->pictq.mutex);
-            }
-        }
-        SDL_UnlockMutex(is->pictq.mutex);
-
-        if (is->videoq.abort_request)
-            return -1;
+       alloc_picture(is, src_frame);
     }
 
     /* if the frame is not skipped, then display it */
@@ -2840,8 +2812,7 @@ void playPause()
 }
 
 void playSeek(double frac)
-{ 
-	return;
+{
 	if(g_pVS)
 	{
 		SDL_Event event;
