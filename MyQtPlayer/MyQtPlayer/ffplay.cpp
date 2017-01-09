@@ -900,8 +900,12 @@ static void video_image_display(VideoState *is)
                 }
             }
         }
+		
+		SDL_Rect rect;
+		calculate_display_rect(&rect, is->xleft, is->ytop, is->width, is->height, vp->width, vp->height, vp->sar);
+
 		SDL_RenderClear(render);
-		SDL_RenderCopy(render, vp->bmp, NULL, NULL);
+		SDL_RenderCopy(render, vp->bmp, NULL, &rect);
 		SDL_RenderPresent(render);
     }
 }
@@ -1533,7 +1537,11 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
         vp->reallocate = 0;
         vp->width = src_frame->width;
         vp->height = src_frame->height;
-
+		
+	char buf[256];
+	char *log = "pushEvent.......................\n";
+	sprintf(buf, "%s %s", g_pVS->filename, log);
+	OutputDebugStringA((LPCSTR)buf);
         /* the allocation must be done in the main thread to avoid
            locking problems. */
         event.type = FF_ALLOC_EVENT;
@@ -2740,7 +2748,7 @@ int event_loop(void *arg)
 	VideoState *cur_stream = (VideoState*)arg;
 	
 	char buf[256];
-	char *log = "in looping.......................";
+	char *log = "in looping.......................\n";
 	sprintf(buf, "%s %s", g_pVS->filename, log);
 	OutputDebugStringA((LPCSTR)buf);
 
@@ -2792,7 +2800,7 @@ int event_loop(void *arg)
             break;
         }
     }
-	log = "out looping.........................";
+	log = "out looping.........................\n";
 	sprintf(buf, "%s %s", g_pVS->filename, log);
 	OutputDebugStringA((LPCSTR)buf);
 	return 0;
