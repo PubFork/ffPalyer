@@ -1,6 +1,9 @@
 
 #include <QWidget> 
 #include <assert.h>
+#include "ffplay.h"
+#include "controlbtn.h"
+
 #define CONFIG_AVFILTER 0
 
 extern "C"
@@ -37,10 +40,6 @@ extern "C"
 #include <SDL2/SDL_thread.h>
 #include "cmdutils.h"
 };
-
-
-#include "ffplay.h"
-#include "controlbtn.h"
 
 ControlBtn* g_ctl;
 #define ARGB(a, r, g, b) (((a)<<24)|((r)<<16)|((g)<<8)|(b))
@@ -361,6 +360,7 @@ static const char *video_codec_name;
 double rdftspeed = 0.02;
 static int64_t cursor_last_shown;
 static int cursor_hidden = 0;
+
 #if CONFIG_AVFILTER
 static const char **vfilters_list = NULL;
 static int nb_vfilters = 0;
@@ -378,7 +378,6 @@ static AVPacket flush_pkt;
 #define FF_PAUSE_EVENT	 (SDL_USEREVENT + 1)
 #define FF_SEEK_EVENT	 (SDL_USEREVENT + 2)
 #define FF_QUIT_EVENT    (SDL_USEREVENT + 3)
-
 
 static SDL_Window *window;
 static SDL_Renderer *render;
@@ -1114,19 +1113,6 @@ static void stream_close(VideoState *is)
     av_free(is);
 }
 
-static void do_exit(VideoState *is)
-{
-    if (g_pVS) {
-        stream_close(g_pVS);
-		g_pVS = NULL;
-    }
-    av_lockmgr_register(NULL);
-#if CONFIG_AVFILTER
-    av_freep(&vfilters_list);
-#endif
-    avformat_network_deinit();
-}
-
 static int video_open(VideoState *is, int force_set_video_mode, Frame *vp)
 {
     int flags = 0;
@@ -1264,11 +1250,6 @@ static void stream_seek(VideoState *is, int64_t pos, int64_t rel, int seek_by_by
     }
 }
 
-void seek(double frac)
-{
-	int64_t ts = frac * g_pVS->ic->duration;
-	stream_seek(g_pVS, ts, 0, 0);
-}
 /* pause or resume the video */
 static void stream_toggle_pause(VideoState *is)
 {
@@ -1287,13 +1268,6 @@ static void toggle_pause(VideoState *is)
 {
     stream_toggle_pause(is);
     is->step = 0;
-}
-
-//API
-void pause()
-{
-    stream_toggle_pause(g_pVS);
-    g_pVS->step = 0;
 }
 
 static void step_to_next_frame(VideoState *is)
@@ -2565,106 +2539,6 @@ fail:
     return is;
 }
 
-static void stream_cycle_channel(VideoState *is, int codec_type)
-{
-    AVFormatContext *ic = is->ic;
-    int start_index, stream_index;
-    int old_index;
-    AVStream *st;
-    AVProgram *p = NULL;
-    int nb_streams = is->ic->nb_streams;
-
-    if (codec_type == AVMEDIA_TYPE_VIDEO) {
-        start_index = is->last_video_stream;
-        old_index = is->video_stream;
-    } else if (codec_type == AVMEDIA_TYPE_AUDIO) {
-        start_index = is->last_audio_stream;
-        old_index = is->audio_stream;
-    } else {
-        start_index = is->last_subtitle_stream;
-        old_index = is->subtitle_stream;
-    }
-    stream_index = start_index;
-
-    if (codec_type != AVMEDIA_TYPE_VIDEO && is->video_stream != -1) {
-        p = av_find_program_from_stream(ic, NULL, is->video_stream);
-        if (p) {
-            nb_streams = p->nb_stream_indexes;
-            for (start_index = 0; start_index < nb_streams; start_index++)
-                if (p->stream_index[start_index] == stream_index)
-                    break;
-            if (start_index == nb_streams)
-                start_index = -1;
-            stream_index = start_index;
-        }
-    }
-
-    for (;;) {
-        if (++stream_index >= nb_streams)
-        {
-            if (codec_type == AVMEDIA_TYPE_SUBTITLE)
-            {
-                stream_index = -1;
-                is->last_subtitle_stream = -1;
-                goto the_end;
-            }
-            if (start_index == -1)
-                return;
-            stream_index = 0;
-        }
-        if (stream_index == start_index)
-            return;
-        st = is->ic->streams[p ? p->stream_index[stream_index] : stream_index];
-        if (st->codec->codec_type == codec_type) {
-            /* check that parameters are OK */
-            switch (codec_type) {
-            case AVMEDIA_TYPE_AUDIO:
-                if (st->codec->sample_rate != 0 &&
-                    st->codec->channels != 0)
-                    goto the_end;
-                break;
-            case AVMEDIA_TYPE_VIDEO:
-            case AVMEDIA_TYPE_SUBTITLE:
-                goto the_end;
-            default:
-                break;
-            }
-        }
-    }
- the_end:
-    if (p && stream_index != -1)
-        stream_index = p->stream_index[stream_index];
-    av_log(NULL, AV_LOG_INFO, "Switch %s stream from #%d to #%d\n",
-           av_get_media_type_string((AVMediaType)codec_type),
-           old_index,
-           stream_index);
-
-    stream_component_close(is, old_index);
-    stream_component_open(is, stream_index);
-}
-
-static void toggle_full_screen(VideoState *is)
-{
-    is_full_screen = !is_full_screen;
-    video_open(is, 1, NULL);
-}
-
-static void toggle_audio_display(VideoState *is)
-{
-    int bgcolor = ARGB(0xff, 0x00, 0x00, 0x00);
-    int next = is->show_mode;
-    do {
-        next = (next + 1) % SHOW_MODE_NB;
-    } while (next != is->show_mode && (next == SHOW_MODE_VIDEO && !is->video_st || next != SHOW_MODE_VIDEO && !is->audio_st));
-    if (is->show_mode != next) {
-        fill_rectangle(screen,
-                    is->xleft, is->ytop, is->width, is->height,
-                    bgcolor, 1);
-        is->force_refresh = 1;
-        is->show_mode = (ShowMode)next;
-    }
-}
-
 static void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
     double remaining_time = 0.0;
     SDL_PumpEvents();
@@ -2681,33 +2555,6 @@ static void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
             video_refresh(is, &remaining_time);
         SDL_PumpEvents();
     }
-}
-
-static void seek_chapter(VideoState *is, int incr)
-{
-    int64_t pos = get_master_clock(is) * AV_TIME_BASE;
-    int i;
-
-    if (!is->ic->nb_chapters)
-        return;
-	
-    /* find the current chapter */
-    for (i = 0; i < is->ic->nb_chapters; i++) {
-        AVChapter *ch = is->ic->chapters[i];
-        if (av_compare_ts(pos, g_base_time, ch->start, ch->time_base) < 0) {
-            i--;
-            break;
-        }
-    }
-
-    i += incr;
-    i = FFMAX(i, 0);
-    if (i >= is->ic->nb_chapters)
-        return;
-
-    av_log(NULL, AV_LOG_VERBOSE, "Seeking to chapter %d.\n", i);
-    stream_seek(is, av_rescale_q(is->ic->chapters[i]->start, is->ic->chapters[i]->time_base,
-                                 g_base_time), 0, 0);
 }
 
 static int lockmgr(void **mtx, enum AVLockOp op)
@@ -2795,8 +2642,13 @@ void stopPlay()
 {
 	if(g_pVS)
 	{
-		do_exit(g_pVS);
+		stream_close(g_pVS);
 		g_pVS = NULL;
+		av_lockmgr_register(NULL);
+#if CONFIG_AVFILTER
+		av_freep(&vfilters_list);
+#endif
+		avformat_network_deinit();
 	}	
 }
 
