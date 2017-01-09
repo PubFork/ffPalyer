@@ -10,6 +10,11 @@ extern "C"
 #include <limits.h>
 #include <signal.h>
 #include <stdint.h>
+	
+#include <windows.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <time.h>
 
 #include "libavutil/avstring.h"
 //#include "libavutil/colorspace.h"
@@ -32,6 +37,7 @@ extern "C"
 #include <SDL2/SDL_thread.h>
 #include "cmdutils.h"
 };
+
 
 #include "ffplay.h"
 #include "controlbtn.h"
@@ -301,6 +307,7 @@ typedef struct VideoState {
 
     SDL_cond *continue_read_thread;
 	int looping;
+	SDL_mutex *loopingLock;
 	SDL_Thread *loop_tid;
 } VideoState;
 
@@ -576,6 +583,10 @@ static int decoder_decode_frame(Decoder *d, AVFrame *frame, AVSubtitle *sub) {
             case AVMEDIA_TYPE_VIDEO:
                 ret = avcodec_decode_video2(d->avctx, frame, &got_frame, &d->pkt_temp);
                 if (got_frame) {
+					if(frame->width < 10 || frame->height < 10)
+					{
+						int w = frame->width;
+					}
                     if (decoder_reorder_pts == -1) {
                         frame->pts = av_frame_get_best_effort_timestamp(frame);
                     } else if (decoder_reorder_pts) {
@@ -1046,9 +1057,16 @@ static void stream_close(VideoState *is)
 {
     /* XXX: use a special url_shutdown call to abort parse cleanly */
     is->abort_request = 1;
+	SDL_LockMutex(is->loopingLock);
 	is->looping = 0;
+	SDL_UnlockMutex(is->loopingLock);
+
 	SDL_WaitThread(is->loop_tid, NULL);
-    SDL_WaitThread(is->read_tid, NULL);
+	OutputDebugStringA((LPCSTR)"is->loop_tid ended!!!\n");
+
+    if (is->ic){
+		SDL_WaitThread(is->read_tid, NULL);   // modify
+	}
 
     /* close each stream */
     if (is->audio_stream >= 0)
@@ -1485,7 +1503,7 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 		vp->bmp = SDL_CreateTexture(render, SDL_PIXELFORMAT_IYUV,
 				SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
 		if (!vp->bmp) {
-			do_exit(is);
+			return;//TODO!!!
 		}
 		printf("alloc texture %dx%d\n", vp->width, vp->height);
 	}
@@ -2508,14 +2526,6 @@ static int read_thread(void *arg)
         avformat_close_input(&ic);
         is->ic = NULL;
     }
-
-    if (ret != 0) {
-        SDL_Event event;
-
-        event.type = FF_QUIT_EVENT;
-        event.user.data1 = is;
-        SDL_PushEvent(&event);
-    }
     SDL_DestroyMutex(wait_mutex);
     return 0;
 }
@@ -2662,6 +2672,7 @@ static void toggle_audio_display(VideoState *is)
 static void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
     double remaining_time = 0.0;
     SDL_PumpEvents();
+
     while (is->looping && !SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
         if (!cursor_hidden && av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
             SDL_ShowCursor(0);
@@ -2727,15 +2738,21 @@ static int lockmgr(void **mtx, enum AVLockOp op)
 int event_loop(void *arg)
 {
 	VideoState *cur_stream = (VideoState*)arg;
+	
+	char buf[256];
+	char *log = "in looping.......................";
+	sprintf(buf, "%s %s", g_pVS->filename, log);
+	OutputDebugStringA((LPCSTR)buf);
+
     SDL_Event event;
     double incr, pos, frac;
 
     for (;;) {
         double x;
-		if(cur_stream->looping)
-	        refresh_loop_wait_event(cur_stream, &event);
+		if(g_pVS->looping)
+	        refresh_loop_wait_event(g_pVS, &event);
 		else
-			return 0;
+			break;
         switch (event.type) 
 		{
         case SDL_WINDOWEVENT:
@@ -2752,8 +2769,11 @@ int event_loop(void *arg)
             }
             break;
         case FF_ALLOC_EVENT:
-            alloc_picture((VideoState *)event.user.data1, (AVFrame *)event.user.data2);
-            break;
+			if(event.user.data1)
+			{
+				alloc_picture((VideoState *)event.user.data1, (AVFrame *)event.user.data2);
+			}
+			break;
 		case FF_SEEK_EVENT:
 			{
 				VideoState* val1 = (VideoState*)event.user.data1;
@@ -2772,6 +2792,10 @@ int event_loop(void *arg)
             break;
         }
     }
+	log = "out looping.........................";
+	sprintf(buf, "%s %s", g_pVS->filename, log);
+	OutputDebugStringA((LPCSTR)buf);
+	return 0;
 }
 
 void stopPlay()
@@ -2796,6 +2820,7 @@ void playPause()
 
 void playSeek(double frac)
 { 
+	return;
 	if(g_pVS)
 	{
 		SDL_Event event;
@@ -2873,6 +2898,8 @@ int ffplay(char *fileName,  QWidget *widget)
 	{
 		return -1;
     }
+	g_pVS->loopingLock = SDL_CreateMutex();
+
 	g_pVS->looping = 1;
 	g_pVS->loop_tid = SDL_CreateThread(event_loop, "event_loop", g_pVS);
 
