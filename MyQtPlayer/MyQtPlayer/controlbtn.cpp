@@ -24,7 +24,7 @@ ControlBtn::~ControlBtn()
 void ControlBtn::slot_btnPlayClicked()
 {	
 	stopOthers();
-	ffplay("video.mp4", ui.viewPlay);
+	ffplay("video3.mp4", ui.viewPlay);
 }
 	
 void ControlBtn::slot_btnNextClicked()
