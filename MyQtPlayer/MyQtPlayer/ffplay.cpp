@@ -2304,6 +2304,8 @@ static int read_thread(void *arg)
     }
 
     is->realtime = is_realtime(ic);
+//	AVDictionary *options = NULL;
+//	ret = avformat_find_stream_info(ic, &options);
 
     for (i = 0; i < ic->nb_streams; i++)
         ic->streams[i]->discard = AVDISCARD_ALL;
@@ -2709,7 +2711,7 @@ int ffplay(char *fileName,  QWidget *widget)
     av_register_all();
     avformat_network_init();
    
-    flags =  SDL_INIT_EVERYTHING;
+    flags = SDL_INIT_AUDIO | SDL_INIT_VIDEO ;
     if (SDL_Init (flags))
 	{
 		return -1;

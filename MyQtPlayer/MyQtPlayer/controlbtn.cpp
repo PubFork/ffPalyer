@@ -38,6 +38,7 @@ void ControlBtn::stopOthers()
 	stopPlay();
 	playSetCtl(this);
 }
+
 void ControlBtn::slot_btnStopClicked()
 {
 	stopPlay();
