@@ -888,36 +888,6 @@ static void video_image_display(VideoState *is)
     vp = frame_queue_peek(&is->pictq);
     if (vp->bmp)
 	{
-        if (is->subtitle_st) 
-		{
-            if (frame_queue_nb_remaining(&is->subpq) > 0) {
-                sp = frame_queue_peek(&is->subpq);
-
-                if (vp->pts >= sp->pts + ((float) sp->sub.start_display_time / 1000)) {
-
-                    for (i = 0; i < sp->sub.num_rects; i++){
-						AVSubtitleRect *srect = sp->sub.rects[i];
-						SDL_Rect rc;
-						Uint8 *p = srect->pict.data[0];
-						int dstw, dsth, wrap3 = srect->pict.linesize[0];
-
-						int imgw = 0, imgh = 0;
-						SDL_GetWindowSize(window, &imgw, &imgh);
-						//pal = (const uint32_t *)srect->pict.data[1]; 
-						dstw = av_clip(srect->w, 0, imgw);
-						dsth = av_clip(srect->h, 0, imgh); 
-						rc.w = av_clip(srect->w, 0, imgw);
-						rc.h = av_clip(srect->h, 0, imgh);
-						rc.x = av_clip(srect->x, 0, imgw - dstw);
-						rc.y = av_clip(srect->y, 0, imgh - dsth);
-
-						SDL_UpdateYUVTexture(vp->bmp, &rc, p, wrap3, NULL, 0, NULL, 0);
-					}
-
-                }
-            }
-        }
-		
 		SDL_Rect rect;
 		calculate_display_rect(&rect, is->xleft, is->ytop, is->width, is->height, vp->width, vp->height, vp->sar);
 
