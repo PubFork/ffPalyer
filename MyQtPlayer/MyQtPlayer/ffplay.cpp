@@ -1110,6 +1110,7 @@ static void stream_close(VideoState *is)
     SDL_DestroyCond(is->continue_read_thread);
     sws_freeContext(is->img_convert_ctx);
 
+	SDL_DestroyMutex(is->loopingLock);
     av_free(is);
 }
 
