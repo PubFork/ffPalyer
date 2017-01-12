@@ -176,7 +176,7 @@ typedef struct Frame {
     int64_t pos;          /* byte position of the frame in the input file */
     SDL_Texture *bmp;
 	SDL_mutex   *textLock;
-    int allocated;
+    //int allocated;
     int reallocate;
     int width;
     int height;
@@ -1060,7 +1060,6 @@ static void stream_close(VideoState *is)
 	SDL_UnlockMutex(is->loopingLock);
 
 	SDL_WaitThread(is->loop_tid, NULL);
-	myLog("is->loop_tid ended!!!\n");
 
     if (is->ic){
 		SDL_WaitThread(is->read_tid, NULL);   // modify
@@ -1487,7 +1486,7 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 
 		vp->bmp = SDL_CreateTexture(render, SDL_PIXELFORMAT_IYUV,
 				SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
-		myLog("vp->bmp:%p\n", vp->bmp);
+		myLog("vp->windex:%d vp->bmp:0x%p",is->pictq.windex, vp->bmp);
 
 		if(!vp->bmp)
 		{
@@ -1498,7 +1497,7 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 	do_scale_picture(is, vp, src);
 
     SDL_LockMutex(is->pictq.mutex);
-    vp->allocated = 1;
+//    vp->allocated = 1;
     SDL_CondSignal(is->pictq.cond);
     SDL_UnlockMutex(is->pictq.mutex);
 }
@@ -1512,11 +1511,8 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
 
     vp->sar = src_frame->sample_aspect_ratio;
 
-    /* alloc, resize or scale hardware picture buffer */
-	{
-       alloc_picture(is, src_frame);
-    }
-
+    /* alloc, resize or scale hardware picture buffer */ 
+	alloc_picture(is, src_frame);
     /* if the frame is not skipped, then display it */
     if (vp->bmp) {
         vp->pts = pts;
@@ -2572,9 +2568,6 @@ static int lockmgr(void **mtx, enum AVLockOp op)
 int event_loop(void *arg)
 {
 	VideoState *cur_stream = (VideoState*)arg;
-	
-	char *log = "in looping.......................\n";
-	myLog("%s %s", g_pVS->filename, log);
 
     SDL_Event event;
     double incr, pos, frac;
@@ -2624,8 +2617,6 @@ int event_loop(void *arg)
             break;
         }
     }
-	log = "out looping.........................\n";
-	myLog("%s %s", g_pVS->filename, log);
 	return 0;
 }
 
@@ -2691,7 +2682,6 @@ int ffplay(char *fileName,  QWidget *widget)
    	int flags;
 	if (!fileName)
 	{
-		printf("file error");
 		return -1;
     }
     av_log_set_flags(AV_LOG_SKIP_REPEATED);
