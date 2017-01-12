@@ -175,6 +175,7 @@ typedef struct Frame {
     double duration;      /* estimated duration of the frame */
     int64_t pos;          /* byte position of the frame in the input file */
     SDL_Texture *bmp;
+	SDL_mutex   *textLock;
     int allocated;
     int reallocate;
     int width;
@@ -835,10 +836,16 @@ static inline void fill_rectangle(SDL_Surface *screen, int x, int y, int w, int 
 
 static void free_picture(Frame *vp)
 {
-     if (vp->bmp) {
+     if (vp->bmp) 
+	 {
          SDL_DestroyTexture(vp->bmp);
          vp->bmp = NULL;
      }
+	 if(vp->textLock)
+	 {
+		 SDL_DestroyMutex(vp->textLock);
+		 vp->textLock = NULL;
+	 }
 }
 
 static inline double rint(double x)
@@ -889,9 +896,11 @@ static void video_image_display(VideoState *is)
 		SDL_Rect rect;
 		calculate_display_rect(&rect, is->xleft, is->ytop, is->width, is->height, vp->width, vp->height, vp->sar);
 
+		SDL_LockMutex(vp->textLock);
 		SDL_RenderClear(render);
 		SDL_RenderCopy(render, vp->bmp, NULL, &rect);
 		SDL_RenderPresent(render);
+		SDL_UnlockMutex(vp->textLock);
     }
 }
 
@@ -1444,10 +1453,12 @@ static int do_scale_picture(VideoState *is, Frame *vp, AVFrame *src_frame)
 	sws_scale(is->img_convert_ctx, src_frame->data, src_frame->linesize,
 			0, vp->height, pict->data, pict->linesize);
 #endif
+	SDL_LockMutex(vp->textLock);
 	SDL_UpdateYUVTexture(vp->bmp, NULL,
 			pict->data[0], pict->linesize[0],
 			pict->data[1], pict->linesize[1],
-			pict->data[2], pict->linesize[2]);    
+			pict->data[2], pict->linesize[2]);   
+	SDL_UnlockMutex(vp->textLock);
 	if(pict != src_frame){
 		av_frame_free(&pict);
 	}
@@ -1463,8 +1474,12 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 
 	if (!vp->bmp ||
         vp->width  != src->width ||
-		vp->height != src->height){
-
+		vp->height != src->height)
+	{
+		if (!vp->textLock) 
+		{
+			vp->textLock = SDL_CreateMutex();
+		}
 		free_picture(vp);
 		video_open(is, 0, vp);
 		vp->width = src->width;
@@ -1472,10 +1487,12 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 
 		vp->bmp = SDL_CreateTexture(render, SDL_PIXELFORMAT_IYUV,
 				SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
-		if (!vp->bmp) {
-			return;//TODO!!!
+		myLog("vp->bmp:%p\n", vp->bmp);
+
+		if(!vp->bmp)
+		{
+			return;
 		}
-		printf("alloc texture %dx%d\n", vp->width, vp->height);
 	}
 
 	do_scale_picture(is, vp, src);
