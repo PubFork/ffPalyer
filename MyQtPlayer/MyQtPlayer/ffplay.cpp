@@ -278,8 +278,6 @@ typedef struct VideoState {
 #endif
     struct AudioParams audio_tgt;
     struct SwrContext *swr_ctx;
-    int frame_drops_early;
-    int frame_drops_late;
 	ShowMode  show_mode;
     int16_t sample_array[SAMPLE_ARRAY_SIZE];
     int sample_array_index;
@@ -1317,14 +1315,16 @@ static void video_refresh(void *opaque, double *remaining_time)
         *remaining_time = FFMIN(*remaining_time, is->last_vis_time + rdftspeed - time);
     }
 
-    if (is->video_st) {
+    if (is->video_st)
+	{
         int redisplay = 0;
         if (is->force_refresh)
+		{
             redisplay = frame_queue_prev(&is->pictq);
+		}
 retry:
-        if (frame_queue_nb_remaining(&is->pictq) == 0) {
-            // nothing to do, no picture to display in the queue
-        } else {
+        if (frame_queue_nb_remaining(&is->pictq) > 0) 
+		{
             double last_duration, duration, delay;
             Frame *vp, *lastvp;
 
@@ -1332,7 +1332,8 @@ retry:
             lastvp = frame_queue_peek_last(&is->pictq);
             vp = frame_queue_peek(&is->pictq);
 
-            if (vp->serial != is->videoq.serial) {
+            if (vp->serial != is->videoq.serial)
+			{
                 frame_queue_next(&is->pictq);
                 redisplay = 0;
                 goto retry;
@@ -1366,12 +1367,12 @@ retry:
                 update_video_pts(is, vp->pts, vp->pos, vp->serial);
             SDL_UnlockMutex(is->pictq.mutex);
 
-            if (frame_queue_nb_remaining(&is->pictq) > 1) {
+            if (frame_queue_nb_remaining(&is->pictq) > 1)
+			{
                 Frame *nextvp = frame_queue_peek_next(&is->pictq);
                 duration = vp_duration(is, vp, nextvp);
-                if(!is->step && (redisplay || framedrop>0 || (framedrop && get_master_sync_type(is) != AV_SYNC_VIDEO_MASTER)) && time > is->frame_timer + duration){
-                    if (!redisplay)
-                        is->frame_drops_late++;
+                if(!is->step && (redisplay || framedrop>0 || (framedrop && get_master_sync_type(is) != AV_SYNC_VIDEO_MASTER)) && time > is->frame_timer + duration)
+				{
                     frame_queue_next(&is->pictq);
                     redisplay = 0;
                     goto retry;
@@ -1533,8 +1534,8 @@ static int get_video_frame(VideoState *is, AVFrame *frame)
                 if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD &&
                     diff - is->frame_last_filter_delay < 0 &&
                     is->viddec.pkt_serial == is->vidclk.serial &&
-                    is->videoq.nb_packets) {
-                    is->frame_drops_early++;
+                    is->videoq.nb_packets) 
+				{
                     av_frame_unref(frame);
                     got_picture = 0;
                 }
