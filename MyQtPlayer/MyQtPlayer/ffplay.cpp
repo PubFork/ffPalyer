@@ -323,7 +323,7 @@ typedef struct VideoState {
 
     SDL_cond *continue_read_thread;
 	int looping;
-	SDL_mutex *loopingLock;
+	SDL_mutex *textureLock;
 	SDL_Thread *loop_tid;
 } VideoState;
 
@@ -377,9 +377,10 @@ static AVPacket flush_pkt;
 #define FF_PAUSE_EVENT	 (SDL_USEREVENT + 1)
 #define FF_SEEK_EVENT	 (SDL_USEREVENT + 2)
 #define FF_QUIT_EVENT    (SDL_USEREVENT + 3)
+#define FF_RESIZE_EVENT	 (SDL_USEREVENT + 4)
 
 static SDL_Window *window;
-static SDL_Renderer *render;
+static SDL_Renderer *renderer;
 static SDL_Surface *screen; /*dumpy*/
 
 #if CONFIG_AVFILTER
@@ -814,8 +815,8 @@ static inline void fill_rectangle(SDL_Surface *screen, int x, int y, int w, int 
     rect.y = y;
     rect.w = w;
     rect.h = h;
-	SDL_SetRenderDrawColor(render, r, g, b, a);
-	SDL_RenderFillRect(render, &rect);
+	SDL_SetRenderDrawColor(renderer, r, g, b, a);
+	SDL_RenderFillRect(renderer, &rect);
 }
 
 #define RGBA_IN(r, g, b, a, s)\
@@ -890,16 +891,21 @@ static void video_image_display(VideoState *is)
     Frame *sp;
     int i;
 
+	SDL_LockMutex(is->pictq.mutex);
     vp = frame_queue_peek(&is->pictq);
+	SDL_UnlockMutex(is->pictq.mutex);
     if (vp->bmp)
 	{
 		SDL_Rect rect;
-		calculate_display_rect(&rect, is->xleft, is->ytop, is->width, is->height, vp->width, vp->height, vp->sar);
+		int w,h;
+		SDL_GetWindowSize(window, &w, &h);
 
 		SDL_LockMutex(vp->textLock);
-		SDL_RenderClear(render);
-		SDL_RenderCopy(render, vp->bmp, NULL, &rect);
-		SDL_RenderPresent(render);
+		calculate_display_rect(&rect, is->xleft, is->ytop, w, h, vp->width, vp->height, vp->sar);
+
+		SDL_RenderClear(renderer);
+		SDL_RenderCopy(renderer, vp->bmp, NULL, &rect);
+		SDL_RenderPresent(renderer);
 		SDL_UnlockMutex(vp->textLock);
     }
 }
@@ -1046,7 +1052,7 @@ static void video_audio_display(VideoState *s)
         if (s->xpos >= s->width)
             s->xpos= s->xleft;
     }
-	SDL_RenderPresent(render);
+	SDL_RenderPresent(renderer);
 }
 
 void stream_component_close(VideoState *is, int stream_index);
@@ -1055,9 +1061,7 @@ static void stream_close(VideoState *is)
 {
     /* XXX: use a special url_shutdown call to abort parse cleanly */
     is->abort_request = 1;
-	SDL_LockMutex(is->loopingLock);
 	is->looping = 0;
-	SDL_UnlockMutex(is->loopingLock);
 
 	SDL_WaitThread(is->loop_tid, NULL);
 
@@ -1086,7 +1090,7 @@ static void stream_close(VideoState *is)
     SDL_DestroyCond(is->continue_read_thread);
     sws_freeContext(is->img_convert_ctx);
 
-	SDL_DestroyMutex(is->loopingLock);
+	SDL_DestroyMutex(is->textureLock);
     av_free(is);
 }
 
@@ -1108,12 +1112,17 @@ static int video_open(VideoState *is, int force_set_video_mode, Frame *vp)
 /* display the current picture, if any */
 static void video_display(VideoState *is)
 {
-    if (!render)
+    if (!renderer)
         video_open(is, 0, NULL);
     if (is->audio_st && is->show_mode != SHOW_MODE_VIDEO)
         video_audio_display(is);
-    else if (is->video_st)
+    else if (is->video_st){
+		SDL_LockMutex(is->textureLock);
+		myLog("begin display");
         video_image_display(is);
+		myLog("end   display");
+		SDL_UnlockMutex(is->textureLock);
+	}
 }
 
 static double get_clock(Clock *c)
@@ -1452,12 +1461,11 @@ static int do_scale_picture(VideoState *is, Frame *vp, AVFrame *src_frame)
 	sws_scale(is->img_convert_ctx, src_frame->data, src_frame->linesize,
 			0, vp->height, pict->data, pict->linesize);
 #endif
-	SDL_LockMutex(vp->textLock);
+		//myLog("data[0]:0x%p data[1]:0x%p data[2]:0x%p",pict->data[0],pict->data[1],pict->data[2]);
 	SDL_UpdateYUVTexture(vp->bmp, NULL,
 			pict->data[0], pict->linesize[0],
 			pict->data[1], pict->linesize[1],
-			pict->data[2], pict->linesize[2]);   
-	SDL_UnlockMutex(vp->textLock);
+			pict->data[2], pict->linesize[2]);  
 	if(pict != src_frame){
 		av_frame_free(&pict);
 	}
@@ -1474,18 +1482,24 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 	if (!vp->bmp ||
         vp->width  != src->width ||
 		vp->height != src->height)
-	{
+	{ 
 		if (!vp->textLock) 
 		{
 			vp->textLock = SDL_CreateMutex();
 		}
-		free_picture(vp);
+
+		SDL_LockMutex(vp->textLock);
+		if (vp->bmp)
+		{
+			SDL_DestroyTexture(vp->bmp);
+			 vp->bmp = NULL;
+		}
 		video_open(is, 0, vp);
 		vp->width = src->width;
 		vp->height = src->height;
-
-		vp->bmp = SDL_CreateTexture(render, SDL_PIXELFORMAT_IYUV,
+		vp->bmp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV,
 				SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
+		SDL_UnlockMutex(vp->textLock);
 		myLog("vp->windex:%d vp->bmp:0x%p",is->pictq.windex, vp->bmp);
 
 		if(!vp->bmp)
@@ -1493,11 +1507,12 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 			return;
 		}
 	}
-
-	do_scale_picture(is, vp, src);
+	
+	SDL_LockMutex(vp->textLock);
+	do_scale_picture(is, vp, src); 
+	SDL_UnlockMutex(vp->textLock);
 
     SDL_LockMutex(is->pictq.mutex);
-//    vp->allocated = 1;
     SDL_CondSignal(is->pictq.cond);
     SDL_UnlockMutex(is->pictq.mutex);
 }
@@ -1512,7 +1527,12 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
     vp->sar = src_frame->sample_aspect_ratio;
 
     /* alloc, resize or scale hardware picture buffer */ 
+	SDL_LockMutex(is->textureLock);
+	myLog("beging alloc_pict");
 	alloc_picture(is, src_frame);
+	myLog("end    alloc_pict");
+	SDL_UnlockMutex(is->textureLock);
+
     /* if the frame is not skipped, then display it */
     if (vp->bmp) {
         vp->pts = pts;
@@ -2580,19 +2600,18 @@ int event_loop(void *arg)
 			break;
         switch (event.type) 
 		{
-        case SDL_WINDOWEVENT:
-            switch (event.window.event) {
-                case SDL_WINDOWEVENT_RESIZED:
-                    int w, h;
-					SDL_SetWindowSize(window, FFMIN(16383, (int)event.window.data1), (int)event.window.data2);
-					SDL_SetWindowFullscreen(window, (is_full_screen?SDL_WINDOW_FULLSCREEN:0)); 
-					SDL_GetWindowSize(window, &w, &h);
-					cur_stream->width  = w;
-					cur_stream->height = h;
-                case SDL_WINDOWEVENT_EXPOSED:
-                    cur_stream->force_refresh = 1;
-            }
-            break;
+		case FF_RESIZE_EVENT:
+			{
+				int *pw = (int*)event.user.data1;
+				int *ph = (int*)event.user.data2;
+
+				cur_stream->width = *pw;
+				cur_stream->height = *ph;
+				free(pw);
+				free(ph);
+				cur_stream->force_refresh = 1;
+			}
+			break;
         case FF_ALLOC_EVENT:
 			if(event.user.data1)
 			{
@@ -2663,11 +2682,27 @@ void playSetCtl(ControlBtn* ctl)
 	g_ctl = ctl;
 }
 
+void palySetWinWidthAndHeight(int w, int h)
+{
+	if(g_pVS)
+	{
+		SDL_Event event;
+		int *pw = (int *)malloc(sizeof(int));
+		int *ph = (int *)malloc(sizeof(int));
+		*pw = w;
+		*ph = h;
+        event.type = FF_RESIZE_EVENT;
+		event.user.data1 = pw;
+		event.user.data2 = ph;
+        SDL_PushEvent(&event);
+	}
+}
+
 void deleteView()
 {
-	if (render)
+	if (renderer)
 	{
-        SDL_DestroyRenderer(render);
+        SDL_DestroyRenderer(renderer);
 	}
 	if (window)
 	{
@@ -2699,11 +2734,11 @@ int ffplay(char *fileName,  QWidget *widget)
 	if(widget)
 	{
 		window = SDL_CreateWindowFrom((void*)widget->winId());
-		if (!window) {
+        if (!window) {
 			return -2;
 		}
-		render = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE); 
-		if(!render)
+		renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE); 
+		if(!renderer)
 		{
 			return -3;
 		}
@@ -2723,7 +2758,7 @@ int ffplay(char *fileName,  QWidget *widget)
 	{
 		return -1;
     }
-	g_pVS->loopingLock = SDL_CreateMutex();
+	g_pVS->textureLock = SDL_CreateMutex();
 
 	g_pVS->looping = 1;
 	g_pVS->loop_tid = SDL_CreateThread(event_loop, "event_loop", g_pVS);

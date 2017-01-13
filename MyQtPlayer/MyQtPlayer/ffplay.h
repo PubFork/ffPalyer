@@ -11,5 +11,6 @@ void playPause();
 void playSeek(double frac);
 void stopPlay();
 void deleteView();
+void palySetWinWidthAndHeight(int w, int h);
 
 #endif
