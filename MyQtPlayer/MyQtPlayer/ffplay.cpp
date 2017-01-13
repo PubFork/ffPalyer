@@ -42,6 +42,7 @@ extern "C"
 };
 
 ControlBtn* g_ctl;
+
 #define ARGB(a, r, g, b) (((a)<<24)|((r)<<16)|((g)<<8)|(b))
 #define  av_gettime_relative av_gettime
 
@@ -323,7 +324,7 @@ typedef struct VideoState {
 
     SDL_cond *continue_read_thread;
 	int looping;
-	SDL_mutex *textureLock;
+	SDL_mutex *loopingLock;
 	SDL_Thread *loop_tid;
 } VideoState;
 
@@ -377,7 +378,8 @@ static AVPacket flush_pkt;
 #define FF_PAUSE_EVENT	 (SDL_USEREVENT + 1)
 #define FF_SEEK_EVENT	 (SDL_USEREVENT + 2)
 #define FF_QUIT_EVENT    (SDL_USEREVENT + 3)
-#define FF_RESIZE_EVENT	 (SDL_USEREVENT + 4)
+#define FF_RESIZE_EVENT  (SDL_USEREVENT + 4)
+
 
 static SDL_Window *window;
 static SDL_Renderer *renderer;
@@ -891,18 +893,13 @@ static void video_image_display(VideoState *is)
     Frame *sp;
     int i;
 
-	SDL_LockMutex(is->pictq.mutex);
     vp = frame_queue_peek(&is->pictq);
-	SDL_UnlockMutex(is->pictq.mutex);
     if (vp->bmp)
 	{
 		SDL_Rect rect;
-		int w,h;
-		SDL_GetWindowSize(window, &w, &h);
+		calculate_display_rect(&rect, is->xleft, is->ytop, is->width, is->height, vp->width, vp->height, vp->sar);
 
 		SDL_LockMutex(vp->textLock);
-		calculate_display_rect(&rect, is->xleft, is->ytop, w, h, vp->width, vp->height, vp->sar);
-
 		SDL_RenderClear(renderer);
 		SDL_RenderCopy(renderer, vp->bmp, NULL, &rect);
 		SDL_RenderPresent(renderer);
@@ -1061,7 +1058,9 @@ static void stream_close(VideoState *is)
 {
     /* XXX: use a special url_shutdown call to abort parse cleanly */
     is->abort_request = 1;
+	SDL_LockMutex(is->loopingLock);
 	is->looping = 0;
+	SDL_UnlockMutex(is->loopingLock);
 
 	SDL_WaitThread(is->loop_tid, NULL);
 
@@ -1090,7 +1089,7 @@ static void stream_close(VideoState *is)
     SDL_DestroyCond(is->continue_read_thread);
     sws_freeContext(is->img_convert_ctx);
 
-	SDL_DestroyMutex(is->textureLock);
+	SDL_DestroyMutex(is->loopingLock);
     av_free(is);
 }
 
@@ -1116,13 +1115,8 @@ static void video_display(VideoState *is)
         video_open(is, 0, NULL);
     if (is->audio_st && is->show_mode != SHOW_MODE_VIDEO)
         video_audio_display(is);
-    else if (is->video_st){
-		SDL_LockMutex(is->textureLock);
-		myLog("begin display");
+    else if (is->video_st)
         video_image_display(is);
-		myLog("end   display");
-		SDL_UnlockMutex(is->textureLock);
-	}
 }
 
 static double get_clock(Clock *c)
@@ -1461,11 +1455,12 @@ static int do_scale_picture(VideoState *is, Frame *vp, AVFrame *src_frame)
 	sws_scale(is->img_convert_ctx, src_frame->data, src_frame->linesize,
 			0, vp->height, pict->data, pict->linesize);
 #endif
-		//myLog("data[0]:0x%p data[1]:0x%p data[2]:0x%p",pict->data[0],pict->data[1],pict->data[2]);
+	SDL_LockMutex(vp->textLock);
 	SDL_UpdateYUVTexture(vp->bmp, NULL,
 			pict->data[0], pict->linesize[0],
 			pict->data[1], pict->linesize[1],
-			pict->data[2], pict->linesize[2]);  
+			pict->data[2], pict->linesize[2]);   
+	SDL_UnlockMutex(vp->textLock);
 	if(pict != src_frame){
 		av_frame_free(&pict);
 	}
@@ -1482,24 +1477,18 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 	if (!vp->bmp ||
         vp->width  != src->width ||
 		vp->height != src->height)
-	{ 
+	{
 		if (!vp->textLock) 
 		{
 			vp->textLock = SDL_CreateMutex();
 		}
-
-		SDL_LockMutex(vp->textLock);
-		if (vp->bmp)
-		{
-			SDL_DestroyTexture(vp->bmp);
-			 vp->bmp = NULL;
-		}
+		free_picture(vp);
 		video_open(is, 0, vp);
 		vp->width = src->width;
 		vp->height = src->height;
+
 		vp->bmp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV,
 				SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
-		SDL_UnlockMutex(vp->textLock);
 		myLog("vp->windex:%d vp->bmp:0x%p",is->pictq.windex, vp->bmp);
 
 		if(!vp->bmp)
@@ -1507,12 +1496,11 @@ static void alloc_picture(VideoState *is, AVFrame *src)
 			return;
 		}
 	}
-	
-	SDL_LockMutex(vp->textLock);
-	do_scale_picture(is, vp, src); 
-	SDL_UnlockMutex(vp->textLock);
+
+	do_scale_picture(is, vp, src);
 
     SDL_LockMutex(is->pictq.mutex);
+//    vp->allocated = 1;
     SDL_CondSignal(is->pictq.cond);
     SDL_UnlockMutex(is->pictq.mutex);
 }
@@ -1527,12 +1515,7 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
     vp->sar = src_frame->sample_aspect_ratio;
 
     /* alloc, resize or scale hardware picture buffer */ 
-	SDL_LockMutex(is->textureLock);
-	myLog("beging alloc_pict");
 	alloc_picture(is, src_frame);
-	myLog("end    alloc_pict");
-	SDL_UnlockMutex(is->textureLock);
-
     /* if the frame is not skipped, then display it */
     if (vp->bmp) {
         vp->pts = pts;
@@ -2599,16 +2582,11 @@ int event_loop(void *arg)
 		else
 			break;
         switch (event.type) 
-		{
+		{       		
 		case FF_RESIZE_EVENT:
 			{
-				int *pw = (int*)event.user.data1;
-				int *ph = (int*)event.user.data2;
-
-				cur_stream->width = *pw;
-				cur_stream->height = *ph;
-				free(pw);
-				free(ph);
+				cur_stream->width = event.drop.type;;
+				cur_stream->height = event.drop.timestamp;
 				cur_stream->force_refresh = 1;
 			}
 			break;
@@ -2687,13 +2665,9 @@ void palySetWinWidthAndHeight(int w, int h)
 	if(g_pVS)
 	{
 		SDL_Event event;
-		int *pw = (int *)malloc(sizeof(int));
-		int *ph = (int *)malloc(sizeof(int));
-		*pw = w;
-		*ph = h;
         event.type = FF_RESIZE_EVENT;
-		event.user.data1 = pw;
-		event.user.data2 = ph;
+		event.drop.type = w;
+		event.drop.timestamp = h;
         SDL_PushEvent(&event);
 	}
 }
@@ -2712,29 +2686,40 @@ void deleteView()
 	SDL_Quit();
 }
 
-int ffplay(char *fileName,  QWidget *widget)
+int initFFMpeg()
 {
-   	int flags;
-	if (!fileName)
-	{
-		return -1;
-    }
-    av_log_set_flags(AV_LOG_SKIP_REPEATED);
-
+	av_log_set_flags(AV_LOG_SKIP_REPEATED);
     avfilter_register_all();
     av_register_all();
     avformat_network_init();
-   
-    flags = SDL_INIT_AUDIO | SDL_INIT_VIDEO ;
+    av_lockmgr_register(lockmgr);
+	
+    av_init_packet(&flush_pkt);
+    flush_pkt.data = (uint8_t *)&flush_pkt;
+
+	return 0;
+}
+
+int initSDL()
+{ 
+	int flags = SDL_INIT_AUDIO | SDL_INIT_VIDEO ;
     if (SDL_Init (flags))
 	{
 		return -1;
     }
 
+    SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
+
+	return 0;
+}
+
+int createWin(QWidget *widget)
+{
+	initSDL();
 	if(widget)
 	{
 		window = SDL_CreateWindowFrom((void*)widget->winId());
-        if (!window) {
+		if (!window) {
 			return -2;
 		}
 		renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE); 
@@ -2743,25 +2728,27 @@ int ffplay(char *fileName,  QWidget *widget)
 			return -3;
 		}
 	}
+}
 
-    SDL_EventState(SDL_SYSWMEVENT, SDL_IGNORE);
-    SDL_EventState(SDL_USEREVENT, SDL_IGNORE);
-    if (av_lockmgr_register(lockmgr)) 
+void* ffplay(char *fileName,  QWidget *widget)
+{
+	if (!fileName)
 	{
-		return -4;
-	}
-    av_init_packet(&flush_pkt);
-    flush_pkt.data = (uint8_t *)&flush_pkt;
+		NULL;
+    }
+	initFFMpeg();
+	initSDL();
+	createWin(widget);
 
     g_pVS = stream_open(fileName, file_iformat);
     if (!g_pVS)
 	{
-		return -1;
+		return NULL;
     }
-	g_pVS->textureLock = SDL_CreateMutex();
-
+	g_pVS->loopingLock = SDL_CreateMutex();
 	g_pVS->looping = 1;
-	g_pVS->loop_tid = SDL_CreateThread(event_loop, "event_loop", g_pVS);
+	//g_pVS->loop_tid = SDL_CreateThread(event_loop, "event_loop", g_pVS);
+	event_loop(g_pVS);
 
-    return 0;
+    return g_pVS;
 }

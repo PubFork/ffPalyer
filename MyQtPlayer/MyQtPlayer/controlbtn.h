@@ -18,6 +18,8 @@ private slots:
 	void slot_btnNextClicked();
 	void slot_btnStopClicked();
 	void slot_btnPauseClicked();
+	void slot_btnSmallClicked();
+	void slot_btnBigClicked();
 	void slot_SliderChanged(int val);
 
 signals:
@@ -30,6 +32,9 @@ void stopOthers();
 private:
 	Ui::ControlBtn ui;
 	int m_nProcess;
+
+	int w;
+	int h;
 };
 
 #endif // CONTROLBTN_H

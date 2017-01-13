@@ -14,6 +14,12 @@ ControlBtn::ControlBtn(QWidget *parent)
 	
 	connect(ui.ctlSlider, SIGNAL(valueChanged(int)), this, SLOT(slot_SliderChanged(int)));	
 	connect(this, SIGNAL(signal_playProgress(int)), ui.ctlSlider, SLOT(setValue(int)));
+	
+	connect(ui.btnSmall, SIGNAL(clicked()), this, SLOT(slot_btnSmallClicked()));
+	connect(ui.btnBig, SIGNAL(clicked()), this, SLOT(slot_btnBigClicked()));
+	
+	w = ui.viewPlay->width();
+	h = ui.viewPlay->height();
 }
 
 ControlBtn::~ControlBtn()
@@ -36,6 +42,8 @@ void ControlBtn::slot_btnNextClicked()
 void ControlBtn::stopOthers()
 {
 	stopPlay();
+	w = ui.viewPlay->width();
+	h = ui.viewPlay->height();
 	playSetCtl(this);
 }
 
@@ -49,6 +57,15 @@ void ControlBtn::slot_btnPauseClicked()
 	playPause();
 }
 
+void ControlBtn::slot_btnSmallClicked()
+{
+	palySetWinWidthAndHeight(w-- ,h--);
+}
+
+void ControlBtn::slot_btnBigClicked()
+{
+	palySetWinWidthAndHeight(w++ ,h++);
+}
 void ControlBtn::slot_SliderChanged(int val)
 {
 	if(m_nProcess != val)
