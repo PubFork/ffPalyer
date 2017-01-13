@@ -2585,8 +2585,8 @@ int event_loop(void *arg)
 		{       		
 		case FF_RESIZE_EVENT:
 			{
-				cur_stream->width = event.drop.type;;
-				cur_stream->height = event.drop.timestamp;
+				cur_stream->width = event.user.windowID;
+				cur_stream->height = event.user.code;
 				cur_stream->force_refresh = 1;
 			}
 			break;
@@ -2666,8 +2666,8 @@ void palySetWinWidthAndHeight(int w, int h)
 	{
 		SDL_Event event;
         event.type = FF_RESIZE_EVENT;
-		event.drop.type = w;
-		event.drop.timestamp = h;
+		event.user.windowID = w;
+		event.user.code = h;
         SDL_PushEvent(&event);
 	}
 }
@@ -2747,8 +2747,8 @@ void* ffplay(char *fileName,  QWidget *widget)
     }
 	g_pVS->loopingLock = SDL_CreateMutex();
 	g_pVS->looping = 1;
-	//g_pVS->loop_tid = SDL_CreateThread(event_loop, "event_loop", g_pVS);
-	event_loop(g_pVS);
+	g_pVS->loop_tid = SDL_CreateThread(event_loop, "event_loop", g_pVS);
+	//event_loop(g_pVS);
 
     return g_pVS;
 }
