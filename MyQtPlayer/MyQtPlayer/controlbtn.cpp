@@ -1,6 +1,7 @@
 #include "controlbtn.h"
 
 #include "ffplay.h"
+
 ControlBtn::ControlBtn(QWidget *parent)
 	: QWidget(parent),
 	m_nProcess(0)
@@ -17,7 +18,9 @@ ControlBtn::ControlBtn(QWidget *parent)
 	
 	connect(ui.btnSmall, SIGNAL(clicked()), this, SLOT(slot_btnSmallClicked()));
 	connect(ui.btnBig, SIGNAL(clicked()), this, SLOT(slot_btnBigClicked()));
-	
+	connect(this, SIGNAL(signal_allocTexture(SDL_Renderer*, VideoState*, AVFrame*)), this, SLOT(slot_allocTexture(SDL_Renderer*, VideoState*, AVFrame*)));
+	connect(this, SIGNAL(signal_drawTexture(VideoState*, float*)), this, SLOT(slot_drawTexture(VideoState*, float*)));
+
 	w = ui.viewPlay->width();
 	h = ui.viewPlay->height();
 }
@@ -59,13 +62,14 @@ void ControlBtn::slot_btnPauseClicked()
 
 void ControlBtn::slot_btnSmallClicked()
 {
-	palySetWinWidthAndHeight(w-- ,h--);
+	palySetWinWidthAndHeight(w-=10 ,h-=10);
 }
 
 void ControlBtn::slot_btnBigClicked()
 {
-	palySetWinWidthAndHeight(w++ ,h++);
+	palySetWinWidthAndHeight(w+=10 ,h+=10);
 }
+
 void ControlBtn::slot_SliderChanged(int val)
 {
 	if(m_nProcess != val)
@@ -86,3 +90,23 @@ void ControlBtn::changeSlider(int pos)
 	}
 }
 
+//
+void ControlBtn::allocTexture(SDL_Renderer *renderer, VideoState *is, AVFrame *src)
+{
+	emit signal_allocTexture(renderer, is, src);
+}
+	
+void ControlBtn::drawTexture(VideoState *is, float *remaining_time)
+{
+	emit signal_drawTexture(is, remaining_time);
+}
+
+void ControlBtn::slot_allocTexture(SDL_Renderer *renderer, VideoState *is, AVFrame *src)
+{
+	ff_alloc_picture(is, src);
+}
+
+void ControlBtn::slot_drawTexture(VideoState *is, float *remaining_time)
+{
+	ff_video_refresh(is, remaining_time);
+}
