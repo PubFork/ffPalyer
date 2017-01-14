@@ -27,13 +27,13 @@ ControlBtn::ControlBtn(QWidget *parent)
 
 ControlBtn::~ControlBtn()
 {
-	stopPlay();
+	playStop(&mPlayer);
 }
 
 void ControlBtn::slot_btnPlayClicked()
 {	
 	stopOthers();
-	ffplay("video3.mp4", ui.viewPlay);
+	mPlayer = ffplay("video3.mp4", ui.viewPlay);
 }
 	
 void ControlBtn::slot_btnNextClicked()
@@ -44,7 +44,8 @@ void ControlBtn::slot_btnNextClicked()
 
 void ControlBtn::stopOthers()
 {
-	stopPlay();
+	playStop(&mPlayer);
+	mPlayer = NULL;
 	w = ui.viewPlay->width();
 	h = ui.viewPlay->height();
 	playSetCtl(this);
@@ -52,12 +53,13 @@ void ControlBtn::stopOthers()
 
 void ControlBtn::slot_btnStopClicked()
 {
-	stopPlay();
+	if(mPlayer)
+		playStop(&mPlayer);
 }
 
 void ControlBtn::slot_btnPauseClicked()
 {
-	playPause();
+	playPause(mPlayer);
 }
 
 void ControlBtn::slot_btnSmallClicked()

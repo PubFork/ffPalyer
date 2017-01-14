@@ -276,24 +276,24 @@ typedef struct VideoState {
 	SDL_mutex *loopingLock;
 	SDL_Thread *loop_tid;
 } *pVideoState;
+	
 
 //funs
-void* ffplay(char *fileName,  QWidget *widget);
+VideoState* ffplay(char *fileName,  QWidget *widget);
 void playSetCtl(ControlBtn* ctl);
-void playPause();
+void playPause(VideoState*player);
 void playSeek(double frac);
-void stopPlay();
+void playStop(VideoState **player);
 void deleteView();
 void palySetWinWidthAndHeight(int w, int h);
 
 //APIs
 void refresh_loop_wait_event(VideoState *is, SDL_Event *event);
-void ff_alloc_picture(VideoState *is, AVFrame *src);
 void stream_seek(VideoState *is, int64_t pos, int64_t rel, int seek_by_bytes);
 void toggle_pause(VideoState *is);
 int video_open(VideoState *is,  Frame *vp);
 void free_picture(Frame *vp);
-void ff_drawTexture(SDL_Renderer *render, SDL_Texture *bmp, SDL_Rect rect);
 void ff_video_refresh(VideoState *is, float *remaining_time);
+void ff_alloc_picture(VideoState *is, AVFrame *src);
 
 #endif

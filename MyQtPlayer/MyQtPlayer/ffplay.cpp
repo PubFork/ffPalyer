@@ -5,6 +5,7 @@
 #define USE_SUB_THREAD 0
 
 ControlBtn* g_ctl;
+SDL_mutex *gOperateLock;
 
 static void myLog(char *fmt, ...)
 {
@@ -1007,8 +1008,9 @@ static void update_video_pts(VideoState *is, double pts, int64_t pos, int serial
 }
 
 /* called to display each frame */
-void ff_video_refresh(VideoState *is, float *remaining_time)
+void video_refresh(VideoState *is, float *remaining_time)
 {
+	SDL_LockMutex( gOperateLock);
     double time;
 
     Frame *sp, *sp2;
@@ -1065,6 +1067,8 @@ retry:
             time= av_gettime_relative()/1000000.0;
             if (time < is->frame_timer + delay && !redisplay) {
                 *remaining_time = FFMIN(is->frame_timer + delay - time, *remaining_time);
+				
+				SDL_UnlockMutex( gOperateLock);
                 return;
             }
 
@@ -1126,6 +1130,7 @@ display:
         }
     }
     is->force_refresh = 0;
+	SDL_UnlockMutex( gOperateLock);
 }
 
 /* allocate a picture (needs to do that in main thread to avoid
@@ -1164,7 +1169,7 @@ static int do_scale_picture(VideoState *is, Frame *vp, AVFrame *src_frame)
 	return 0;
 }
 
-void ff_alloc_picture(VideoState *is, AVFrame *src)
+void alloc_picture(VideoState *is, AVFrame *src)
 {
     Frame *vp;
 
@@ -2182,6 +2187,10 @@ static VideoState *stream_open(const char *filename, AVInputFormat *iformat)
     is->audio_clock_serial = -1;
     is->av_sync_type = av_sync_type;
     is->read_tid     = SDL_CreateThread(read_thread, "read thread", is);
+
+	
+	is->loopingLock = SDL_CreateMutex();
+	is->looping = 1;
     if (!is->read_tid) {
 fail:
         stream_close(is);
@@ -2287,20 +2296,23 @@ int event_loop(void *arg)
 	return 0;
 }
 
-void stopPlay()
+void playStop(VideoState **player)
 {
-	if(g_pVS)
+	if(g_pVS == *player)
 	{
+		SDL_LockMutex(gOperateLock);
 		stream_close(g_pVS);
-		g_pVS = NULL;
 		av_lockmgr_register(NULL);
 		avformat_network_deinit();
+		g_pVS = NULL;
+		*player = NULL;
+		SDL_UnlockMutex(gOperateLock);
 	}	
 }
 
-void playPause()
+void playPause(VideoState*player)
 {
-	if(g_pVS)
+	if(g_pVS == player)
 	{
 		SDL_Event event;
         event.type = FF_PAUSE_EVENT;
@@ -2337,6 +2349,22 @@ void palySetWinWidthAndHeight(int w, int h)
 		event.user.code = h;
         SDL_PushEvent(&event);
 	}
+}
+
+void ff_video_refresh(VideoState *is, float *remaining_time)
+{
+	SDL_LockMutex( gOperateLock);
+	if(g_pVS && g_pVS->looping && (g_pVS == is))
+		video_refresh(is, remaining_time);
+	SDL_UnlockMutex( gOperateLock);
+}
+
+void ff_alloc_picture(VideoState *is, AVFrame *src)
+{
+	SDL_LockMutex( gOperateLock);
+	if(g_pVS && g_pVS->looping && (is == g_pVS))
+		alloc_picture(is, src);
+	SDL_UnlockMutex( gOperateLock);
 }
 
 void deleteView()
@@ -2397,7 +2425,7 @@ int createWin(QWidget *widget)
 	}
 }
 
-void* ffplay(char *fileName,  QWidget *widget)
+VideoState* play(char *fileName,  QWidget *widget)
 {
 	if (!fileName)
 	{
@@ -2412,9 +2440,21 @@ void* ffplay(char *fileName,  QWidget *widget)
 	{
 		return NULL;
     }
-	g_pVS->loopingLock = SDL_CreateMutex();
-	g_pVS->looping = 1;
 	g_pVS->loop_tid = SDL_CreateThread(event_loop, "event_loop", g_pVS);
 
     return g_pVS;
+}
+
+VideoState* ffplay(char *fileName,  QWidget *widget)
+{
+	if(!gOperateLock)
+	{
+		gOperateLock = SDL_CreateMutex();
+	}
+	SDL_LockMutex(gOperateLock);
+	VideoState *ret = play(fileName, widget);
+
+	SDL_UnlockMutex(gOperateLock);
+
+	return ret;
 }

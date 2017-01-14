@@ -40,8 +40,8 @@ private:
 
 private:
 	Ui::ControlBtn ui;
+	VideoState* mPlayer;
 	int m_nProcess;
-
 	int w;
 	int h;
 };
