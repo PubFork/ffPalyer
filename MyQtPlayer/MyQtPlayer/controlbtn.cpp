@@ -39,7 +39,7 @@ void ControlBtn::slot_btnPlayClicked()
 void ControlBtn::slot_btnNextClicked()
 {
 	stopOthers();
-	ffplay("video2.mp4", ui.viewPlay);
+	mPlayer = ffplay("video2.mp4", ui.viewPlay);
 }
 
 void ControlBtn::stopOthers()
