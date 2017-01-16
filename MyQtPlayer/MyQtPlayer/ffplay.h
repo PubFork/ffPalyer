@@ -39,12 +39,10 @@ extern "C"
 #include "cmdutils.h"
 };
 
-
 #define FF_ALLOC_EVENT   (SDL_USEREVENT)
 #define FF_PAUSE_EVENT	 (SDL_USEREVENT + 1)
 #define FF_SEEK_EVENT	 (SDL_USEREVENT + 2)
-#define FF_QUIT_EVENT    (SDL_USEREVENT + 3)
-#define FF_RESIZE_EVENT  (SDL_USEREVENT + 4)
+#define FF_RESIZE_EVENT  (SDL_USEREVENT + 3)
 
 
 #define ARGB(a, r, g, b) (((a)<<24)|((r)<<16)|((g)<<8)|(b))

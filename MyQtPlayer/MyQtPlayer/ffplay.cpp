@@ -58,8 +58,6 @@ static int genpts = 0;
 static int lowres = 0;
 static int decoder_reorder_pts = -1;
 static int autoexit;
-static int exit_on_keydown;
-static int exit_on_mousedown;
 static int loop = 1;
 static int framedrop = -1;
 static int infinite_buffer = -1;
@@ -70,11 +68,8 @@ static const char *video_codec_name;
 double rdftspeed = 0.02;
 static int64_t cursor_last_shown;
 static int cursor_hidden = 0;
-static int autorotate = 1;
-
-/* current context */
-static int is_full_screen;
 static int64_t audio_callback_time;
+
 static AVPacket flush_pkt;
 static SDL_Surface *screen; /*dumpy*/
 
@@ -786,8 +781,7 @@ int video_open(VideoState *is,  Frame *vp)
     int flags = 0;
     int w,h;
 
-    if (is_full_screen) flags |= SDL_WINDOW_FULLSCREEN;
-    else                flags |= SDL_WINDOW_RESIZABLE;
+	flags |= SDL_WINDOW_RESIZABLE;
 
 	SDL_GetWindowSize(window, &w, &h);
 	w = FFMIN(16383, w);
@@ -2191,7 +2185,7 @@ void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
     while (is->looping && !SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
         if (!cursor_hidden && av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
             SDL_ShowCursor(0);
-            cursor_hidden = 1;
+            //cursor_hidden = 1;
         }
         if (remaining_time > 0.0)
             av_usleep((int64_t)(remaining_time * 1000000.0));
