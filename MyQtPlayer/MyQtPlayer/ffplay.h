@@ -284,15 +284,8 @@ void playSetCtl(ControlBtn* ctl);
 void playPause(VideoState*player);
 void playSeek(double frac);
 void playStop(VideoState **player);
+void playVideoRefresh(VideoState *is, float *remaining_time);
+void playAllocPicture(VideoState *is, AVFrame *src);
 void deleteView();
-
-//APIs
-void refresh_loop_wait_event(VideoState *is, SDL_Event *event);
-void stream_seek(VideoState *is, int64_t pos, int64_t rel, int seek_by_bytes);
-void toggle_pause(VideoState *is);
-int video_open(VideoState *is,  Frame *vp);
-void free_picture(Frame *vp);
-void ff_video_refresh(VideoState *is, float *remaining_time);
-void ff_alloc_picture(VideoState *is, AVFrame *src);
 
 #endif

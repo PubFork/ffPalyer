@@ -1,11 +1,11 @@
-
 #include "ffplay.h"
 #include "controlbtn.h"
 
-#define USE_SUB_THREAD 0
-
 ControlBtn* g_ctl;
 SDL_mutex *gOperateLock;
+VideoState *g_pVS;
+static SDL_Window *window;
+static SDL_Renderer *renderer;
 
 static void myLog(char *fmt, ...)
 {
@@ -40,11 +40,8 @@ static av_always_inline av_const int isnan(float x)
 }
 
 static int64_t sws_flags = SWS_BICUBIC;
-
-VideoState *g_pVS;
 /* options specified by the user */
 static AVInputFormat *file_iformat;
-
 static int audio_disable;
 static int video_disable;
 static int subtitle_disable;
@@ -73,15 +70,12 @@ static const char *video_codec_name;
 double rdftspeed = 0.02;
 static int64_t cursor_last_shown;
 static int cursor_hidden = 0;
-
 static int autorotate = 1;
 
 /* current context */
 static int is_full_screen;
 static int64_t audio_callback_time;
 static AVPacket flush_pkt;
-static SDL_Window *window;
-static SDL_Renderer *renderer;
 static SDL_Surface *screen; /*dumpy*/
 
 static inline int cmp_audio_fmts(enum AVSampleFormat fmt1, int64_t channel_count1, enum AVSampleFormat fmt2, int64_t channel_count2)
@@ -598,13 +592,6 @@ static void video_image_display(VideoState *is)
 		SDL_UnlockMutex(vp->textLock);
 		return;
     }
-}
-
-void ff_drawTexture(SDL_Renderer *render, SDL_Texture *bmp, SDL_Rect rect)
-{
-	SDL_RenderClear(render);
-	SDL_RenderCopy(render, bmp, NULL, NULL);
-	SDL_RenderPresent(render);
 }
 
 static inline int compute_mod(int a, int b)
@@ -1223,9 +1210,6 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
    //     vp->height != src_frame->height) 
 	{
 		vp->allocated = 0;
-#if USE_SUB_THREAD
-	ff_alloc_picture(is, src_frame);
-#else
 		if(g_ctl)
 		{
 			g_ctl->allocTexture(renderer, is, src_frame);
@@ -1247,7 +1231,6 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
 
         if (is->videoq.abort_request)
             return -1;
-#endif
 }
     /* if the frame is not skipped, then display it */
     if (vp->bmp) {
@@ -2215,14 +2198,10 @@ void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
         remaining_time = REFRESH_RATE;
         if (is->show_mode != SHOW_MODE_NONE && (!is->paused || is->force_refresh))
 		{
-#if USE_SUB_THREAD
-            ff_video_refresh(is, &remaining_time);
-#else
 			if(g_ctl)
 			{
 				g_ctl->drawTexture(is, &remaining_time);
 			}
-#endif
 		}
         SDL_PumpEvents();
     }
@@ -2274,7 +2253,7 @@ int event_loop(void *arg)
         case FF_ALLOC_EVENT:
 			if(event.user.data1)
 			{
-				ff_alloc_picture((VideoState *)event.user.data1, (AVFrame *)event.user.data2);
+				playAllocPicture((VideoState *)event.user.data1, (AVFrame *)event.user.data2);
 			}
 			break;
 		case FF_SEEK_EVENT:
@@ -2348,7 +2327,7 @@ void playSetCtl(ControlBtn* ctl)
 	SDL_UnlockMutex(gOperateLock);
 }
 
-void ff_video_refresh(VideoState *is, float *remaining_time)
+void playVideoRefresh(VideoState *is, float *remaining_time)
 {
 	SDL_LockMutex( gOperateLock);
 	if(g_pVS && g_pVS->looping && (g_pVS == is))
@@ -2356,7 +2335,7 @@ void ff_video_refresh(VideoState *is, float *remaining_time)
 	SDL_UnlockMutex( gOperateLock);
 }
 
-void ff_alloc_picture(VideoState *is, AVFrame *src)
+void playAllocPicture(VideoState *is, AVFrame *src)
 {
 	SDL_LockMutex( gOperateLock);
 	if(g_pVS && g_pVS->looping && (is == g_pVS))

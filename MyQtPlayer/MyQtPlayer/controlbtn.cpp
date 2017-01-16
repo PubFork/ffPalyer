@@ -93,10 +93,10 @@ void ControlBtn::drawTexture(VideoState *is, float *remaining_time)
 
 void ControlBtn::slot_allocTexture(SDL_Renderer *renderer, VideoState *is, AVFrame *src)
 {
-	ff_alloc_picture(is, src);
+	playAllocPicture(is, src);
 }
 
 void ControlBtn::slot_drawTexture(VideoState *is, float *remaining_time)
 {
-	ff_video_refresh(is, remaining_time);
+	playVideoRefresh(is, remaining_time);
 }
