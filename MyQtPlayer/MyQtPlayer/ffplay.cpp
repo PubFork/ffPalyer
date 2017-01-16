@@ -587,7 +587,9 @@ static void video_image_display(VideoState *is)
     if (vp->bmp)
 	{
 		SDL_Rect rect;
-		calculate_display_rect(&rect, is->xleft, is->ytop, is->width, is->height, vp->width, vp->height, vp->sar);
+		int w, h;
+		SDL_GetWindowSize(window, &w, &h);
+		calculate_display_rect(&rect, is->xleft, is->ytop, w, h, vp->width, vp->height, vp->sar);
 
 		SDL_LockMutex(vp->textLock);
 		SDL_RenderClear(renderer);
