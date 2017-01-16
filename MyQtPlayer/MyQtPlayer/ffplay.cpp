@@ -2281,14 +2281,15 @@ int event_loop(void *arg)
 			{
 				VideoState* val1 = (VideoState*)event.user.data1;
 				int64_t pos = event.user.code;
-
-				stream_seek(val1, pos, 0, 0);
+				if(val1)
+					stream_seek(val1, pos, 0, 0);
 			}
 			break;
 		case FF_PAUSE_EVENT:
 			{
 				VideoState* val1 = (VideoState*)event.user.data1;
-				toggle_pause(val1);
+				if(val1)
+					toggle_pause(val1);
 			}
 			break;
         default:
@@ -2300,20 +2301,21 @@ int event_loop(void *arg)
 
 void playStop(VideoState **player)
 {
-	if(g_pVS == *player)
+	SDL_LockMutex(gOperateLock);
+	if(g_pVS && *player && g_pVS == *player)
 	{
-		SDL_LockMutex(gOperateLock);
 		stream_close(g_pVS);
 		av_lockmgr_register(NULL);
 		avformat_network_deinit();
 		g_pVS = NULL;
 		*player = NULL;
-		SDL_UnlockMutex(gOperateLock);
 	}	
+	SDL_UnlockMutex(gOperateLock);
 }
 
 void playPause(VideoState*player)
 {
+	SDL_LockMutex(gOperateLock);
 	if(g_pVS == player)
 	{
 		SDL_Event event;
@@ -2321,10 +2323,12 @@ void playPause(VideoState*player)
         event.user.data1 = g_pVS;
         SDL_PushEvent(&event);
 	}
+	SDL_UnlockMutex(gOperateLock);
 }
 
 void playSeek(double frac)
 {
+	SDL_LockMutex(gOperateLock);
 	if(g_pVS)
 	{
 		SDL_Event event;
@@ -2334,23 +2338,14 @@ void playSeek(double frac)
         event.user.data1 = g_pVS;
         SDL_PushEvent(&event);
 	}
+	SDL_UnlockMutex(gOperateLock);
 }
 
 void playSetCtl(ControlBtn* ctl)
 {
+	SDL_LockMutex(gOperateLock);
 	g_ctl = ctl;
-}
-
-void palySetWinWidthAndHeight(int w, int h)
-{
-	if(g_pVS)
-	{
-		SDL_Event event;
-        event.type = FF_RESIZE_EVENT;
-		event.user.windowID = w;
-		event.user.code = h;
-        SDL_PushEvent(&event);
-	}
+	SDL_UnlockMutex(gOperateLock);
 }
 
 void ff_video_refresh(VideoState *is, float *remaining_time)

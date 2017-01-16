@@ -285,7 +285,6 @@ void playPause(VideoState*player);
 void playSeek(double frac);
 void playStop(VideoState **player);
 void deleteView();
-void palySetWinWidthAndHeight(int w, int h);
 
 //APIs
 void refresh_loop_wait_event(VideoState *is, SDL_Event *event);

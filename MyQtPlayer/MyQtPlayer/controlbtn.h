@@ -24,8 +24,6 @@ private slots:
 	void slot_btnNextClicked();
 	void slot_btnStopClicked();
 	void slot_btnPauseClicked();
-	void slot_btnSmallClicked();
-	void slot_btnBigClicked();
 	void slot_SliderChanged(int val);
 	void slot_allocTexture(SDL_Renderer *renderer, VideoState* is, AVFrame *src);
 	void slot_drawTexture(VideoState *is, float *remaining_time);

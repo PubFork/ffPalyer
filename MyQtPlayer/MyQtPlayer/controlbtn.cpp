@@ -15,9 +15,7 @@ ControlBtn::ControlBtn(QWidget *parent)
 	
 	connect(ui.ctlSlider, SIGNAL(valueChanged(int)), this, SLOT(slot_SliderChanged(int)));	
 	connect(this, SIGNAL(signal_playProgress(int)), ui.ctlSlider, SLOT(setValue(int)));
-	
-	connect(ui.btnSmall, SIGNAL(clicked()), this, SLOT(slot_btnSmallClicked()));
-	connect(ui.btnBig, SIGNAL(clicked()), this, SLOT(slot_btnBigClicked()));
+
 	connect(this, SIGNAL(signal_allocTexture(SDL_Renderer*, VideoState*, AVFrame*)), this, SLOT(slot_allocTexture(SDL_Renderer*, VideoState*, AVFrame*)));
 	connect(this, SIGNAL(signal_drawTexture(VideoState*, float*)), this, SLOT(slot_drawTexture(VideoState*, float*)));
 
@@ -60,16 +58,6 @@ void ControlBtn::slot_btnStopClicked()
 void ControlBtn::slot_btnPauseClicked()
 {
 	playPause(mPlayer);
-}
-
-void ControlBtn::slot_btnSmallClicked()
-{
-	palySetWinWidthAndHeight(w-=10 ,h-=10);
-}
-
-void ControlBtn::slot_btnBigClicked()
-{
-	palySetWinWidthAndHeight(w+=10 ,h+=10);
 }
 
 void ControlBtn::slot_SliderChanged(int val)
