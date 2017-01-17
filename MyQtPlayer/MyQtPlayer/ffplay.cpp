@@ -2236,7 +2236,15 @@ int event_loop(void *arg)
 		else
 			break;
         switch (event.type) 
-		{       		
+		{      
+		case SDL_WINDOWEVENT:
+            switch (event.window.event) 
+			{
+                case SDL_WINDOWEVENT_RESIZED:
+                case SDL_WINDOWEVENT_EXPOSED:
+                    cur_stream->force_refresh = 1;
+            }
+            break;		
 		case FF_RESIZE_EVENT:
 			{
 				cur_stream->width = event.user.windowID;
