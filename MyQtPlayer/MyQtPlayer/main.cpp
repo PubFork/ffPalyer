@@ -4,7 +4,7 @@
 #include <qpushbutton.h>
 #include <phonon> 
 #include <QUrl> 
-#include "controlbtn.h"
+#include "XYPlayView.h"
 
 
 #define USE_FF_PLAY 1
@@ -27,7 +27,7 @@ int main(int argc, char * argv[])
         verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
 
 		
-  ControlBtn *showView = new ControlBtn(widget);
+  XYPlayView *showView = new XYPlayView(widget);
 
 
   QSizePolicy sizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);

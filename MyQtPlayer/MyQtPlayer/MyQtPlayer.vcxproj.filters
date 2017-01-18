@@ -38,38 +38,35 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="controlbtn.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="GeneratedFiles\Debug\moc_controlbtn.cpp">
-      <Filter>Generated Files\Debug</Filter>
-    </ClCompile>
-    <ClCompile Include="GeneratedFiles\Release\moc_controlbtn.cpp">
-      <Filter>Generated Files\Release</Filter>
-    </ClCompile>
     <ClCompile Include="ffplay.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="XYPlayView.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GeneratedFiles\Debug\moc_XYPlayView.cpp">
+      <Filter>Generated Files\Debug</Filter>
+    </ClCompile>
+    <ClCompile Include="GeneratedFiles\Release\moc_XYPlayView.cpp">
+      <Filter>Generated Files\Release</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="myqtplayer.ui">
       <Filter>Form Files</Filter>
     </CustomBuild>
-    <CustomBuild Include="controlbtn.h">
+    <CustomBuild Include="XYPlayView.h">
       <Filter>Header Files</Filter>
     </CustomBuild>
-    <CustomBuild Include="controlbtn.ui">
+    <CustomBuild Include="XYPlayView.ui">
       <Filter>Form Files</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="GeneratedFiles\ui_myqtplayer.h">
-      <Filter>Generated Files</Filter>
-    </ClInclude>
     <ClInclude Include="ffplay.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="GeneratedFiles\ui_controlbtn.h">
+    <ClInclude Include="GeneratedFiles\ui_XYPlayView.h">
       <Filter>Generated Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -2,44 +2,45 @@
 #define CONTROLBTN_H
 
 #include <QWidget>
-#include "ui_controlbtn.h"
-#include "SDL2/SDL.h"
-#include "SDL2/SDL_thread.h"
+#include "ui_XYPlayView.h"
 #include "ffplay.h"
 
 
-class ControlBtn : public QWidget
+class XYPlayView 
+	: public QWidget,
+	public XYPlayViewHandler
 {
 	Q_OBJECT
 
 public:
-	ControlBtn(QWidget *parent = 0);
-	~ControlBtn();
+	XYPlayView(QWidget *parent = 0);
 
-	void changeSlider(int pos);
-	void allocTexture(SDL_Renderer *renderer, VideoState* is, AVFrame *src);
-	void drawTexture(VideoState *is, float *remaining_time);
+	virtual void allocTexture(VideoState* is, void *srcFrame);
+	virtual void drawTexture(VideoState *is, float *remaining_time);
+	virtual void setProgress(int pos);
+
+	~XYPlayView();
 private slots:
 	void slot_btnPlayClicked();
 	void slot_btnNextClicked();
 	void slot_btnStopClicked();
 	void slot_btnPauseClicked();
 	void slot_SliderChanged(int val);
-	void slot_allocTexture(SDL_Renderer *renderer, VideoState* is, AVFrame *src);
+	void slot_allocTexture(VideoState* is, void *srcFrame);
 	void slot_drawTexture(VideoState *is, float *remaining_time);
 
 
 signals:
 	void signal_playProgress(int pos);
-	void signal_allocTexture(SDL_Renderer *renderer, VideoState* is, AVFrame *src);
+	void signal_allocTexture(VideoState* is, void *srcFrame);
 	void signal_drawTexture(VideoState *is, float *remaining_time);
 private:
 	void stopOthers();
+	void playFile(char *fileName);
 
 private:
-	Ui::ControlBtn ui;
+	Ui::XYPlayView ui;
 	VideoState* mPlayer;
-	int m_nProcess;
 	int w;
 	int h;
 };

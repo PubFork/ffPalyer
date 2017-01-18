@@ -1,11 +1,278 @@
 #include "ffplay.h"
-#include "controlbtn.h"
 
-ControlBtn* g_ctl;
+extern "C"
+{
+#include <inttypes.h>
+#include <math.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <time.h>
+#include <windows.h>
+
+#include "libavutil/avstring.h"
+#include "libavutil/mathematics.h"
+#include "libavutil/pixdesc.h"
+#include "libavutil/imgutils.h"
+#include "libavutil/dict.h"
+#include "libavutil/parseutils.h"
+#include "libavutil/samplefmt.h"
+#include "libavutil/avassert.h"
+#include "libavutil/time.h"
+
+#include "libavformat/avformat.h"
+#include "libavdevice/avdevice.h"
+#include "libswscale/swscale.h"
+#include "libavutil/opt.h"
+#include "libavcodec/avfft.h"
+#include "libswresample/swresample.h"
+#include <SDL.h>
+#include <SDL_thread.h>
+};
+
+
+#define FF_ALLOC_EVENT   (SDL_USEREVENT)
+#define FF_PAUSE_EVENT	 (SDL_USEREVENT + 1)
+#define FF_SEEK_EVENT	 (SDL_USEREVENT + 2)
+#define FF_RESIZE_EVENT  (SDL_USEREVENT + 3)
+
+
+#define ARGB(a, r, g, b) (((a)<<24)|((r)<<16)|((g)<<8)|(b))
+
+const AVRational g_base_time =  {1, AV_TIME_BASE}; // g_base_time;
+#define MAX_QUEUE_SIZE (15 * 1024 * 1024)
+#define MIN_FRAMES 5
+
+/* Minimum SDL audio buffer size, in samples. */
+#define SDL_AUDIO_MIN_BUFFER_SIZE 512
+/* Calculate actual buffer size keeping in mind not cause too frequent audio callbacks */
+#define SDL_AUDIO_MAX_CALLBACKS_PER_SEC 30
+
+/* no AV sync correction is done if below the minimum AV sync threshold */
+#define AV_SYNC_THRESHOLD_MIN 0.04
+/* AV sync correction is done if above the maximum AV sync threshold */
+#define AV_SYNC_THRESHOLD_MAX 0.1
+/* If a frame duration is longer than this, it will not be duplicated to compensate AV sync */
+#define AV_SYNC_FRAMEDUP_THRESHOLD 0.1
+/* no AV correction is done if too big error */
+#define AV_NOSYNC_THRESHOLD 10.0
+
+/* maximum audio speed change to get correct sync */
+#define SAMPLE_CORRECTION_PERCENT_MAX 10
+
+/* external clock speed adjustment constants for realtime sources based on buffer fullness */
+#define EXTERNAL_CLOCK_SPEED_MIN  0.900
+#define EXTERNAL_CLOCK_SPEED_MAX  1.010
+#define EXTERNAL_CLOCK_SPEED_STEP 0.001
+
+/* we use about AUDIO_DIFF_AVG_NB A-V differences to make the average */
+#define AUDIO_DIFF_AVG_NB   20
+
+/* polls for possible required scr refresh at least this often, should be less than 1/fps */
+#define REFRESH_RATE 0.01
+
+/* NOTE: the size must be big enough to compensate the hardware audio buffersize size */
+/* TODO: We assume that a decoded and resampled frame fits into this buffer */
+#define SAMPLE_ARRAY_SIZE (8 * 65536)
+
+#define CURSOR_HIDE_DELAY 1000000
+
+
+typedef struct MyAVPacketList {
+	AVPacket pkt;
+	struct MyAVPacketList *next;
+	int serial;
+} MyAVPacketList;
+
+typedef struct PacketQueue {
+	MyAVPacketList *first_pkt, *last_pkt;
+	int nb_packets;
+	int size;
+	int abort_request;
+	int serial;
+	SDL_mutex *mutex;
+	SDL_cond *cond;
+} PacketQueue;
+
+#define VIDEO_PICTURE_QUEUE_SIZE 5
+#define SUBPICTURE_QUEUE_SIZE 16
+#define SAMPLE_QUEUE_SIZE 9
+#define FRAME_QUEUE_SIZE FFMAX(SAMPLE_QUEUE_SIZE, FFMAX(VIDEO_PICTURE_QUEUE_SIZE, SUBPICTURE_QUEUE_SIZE))
+
+typedef struct AudioParams {
+	int freq;
+	int channels;
+	int64_t channel_layout;
+	enum AVSampleFormat fmt;
+	int frame_size;
+	int bytes_per_sec;
+} AudioParams;
+
+typedef struct Clock {
+	double pts;           /* clock base */
+	double pts_drift;     /* clock base minus time at which we updated the clock */
+	double last_updated;
+	double speed;
+	int serial;           /* clock is based on a packet with this serial */
+	int paused;
+	int *queue_serial;    /* pointer to the current packet queue serial, used for obsolete clock detection */
+} Clock;
+
+/* Common struct for handling all types of decoded data and allocated render buffers. */
+typedef struct Frame {
+	AVFrame *frame;
+	AVSubtitle sub;
+	int serial;
+	double pts;           /* presentation timestamp for the frame */
+	double duration;      /* estimated duration of the frame */
+	int64_t pos;          /* byte position of the frame in the input file */
+	SDL_Texture *bmp;
+	SDL_mutex   *textLock;
+	int allocated;
+	int reallocate;
+	int width;
+	int height;
+	AVRational sar;
+} Frame;
+
+typedef struct FrameQueue {
+	Frame queue[FRAME_QUEUE_SIZE];
+	int rindex;
+	int windex;
+	int size;
+	int max_size;
+	int keep_last;
+	int rindex_shown;
+	SDL_mutex *mutex;
+	SDL_cond *cond;
+	PacketQueue *pktq;
+} FrameQueue;
+
+enum {
+	AV_SYNC_AUDIO_MASTER, /* default choice */
+	AV_SYNC_VIDEO_MASTER,
+	AV_SYNC_EXTERNAL_CLOCK, /* synchronize to an external clock */
+};
+
+typedef struct Decoder {
+	AVPacket pkt;
+	AVPacket pkt_temp;
+	PacketQueue *queue;
+	AVCodecContext *avctx;
+	int pkt_serial;
+	int finished;
+	int flushed;
+	int packet_pending;
+	SDL_cond *empty_queue_cond;
+	int64_t start_pts;
+	AVRational start_pts_tb;
+	int64_t next_pts;
+	AVRational next_pts_tb;
+} Decoder;
+
+typedef enum ShowMode {
+	SHOW_MODE_NONE = -1, SHOW_MODE_VIDEO = 0, SHOW_MODE_WAVES, SHOW_MODE_RDFT, SHOW_MODE_NB
+} ShowMode;
+
+typedef struct VideoState {
+	SDL_Thread *read_tid;
+	SDL_Thread *video_tid;
+	SDL_Thread *audio_tid;
+	AVInputFormat *iformat;
+	int no_background;
+	int abort_request;
+	int force_refresh;
+	int paused;
+	int last_paused;
+	int queue_attachments_req;
+	int seek_req;
+	int seek_flags;
+	int64_t seek_pos;
+	int64_t seek_rel;
+	int read_pause_return;
+	AVFormatContext *ic;
+	int realtime;
+
+	Clock audclk;
+	Clock vidclk;
+	Clock extclk;
+
+	FrameQueue pictq;
+	FrameQueue subpq;
+	FrameQueue sampq;
+
+	Decoder auddec;
+	Decoder viddec;
+	Decoder subdec;
+
+	int audio_stream;
+
+	int av_sync_type;
+
+	double audio_clock;
+	int audio_clock_serial;
+	double audio_diff_cum; /* used for AV difference average computation */
+	double audio_diff_avg_coef;
+	double audio_diff_threshold;
+	int audio_diff_avg_count;
+	AVStream *audio_st;
+	PacketQueue audioq;
+	int audio_hw_buf_size;
+	uint8_t silence_buf[SDL_AUDIO_MIN_BUFFER_SIZE];
+	uint8_t *audio_buf;
+	uint8_t *audio_buf1;
+	unsigned int audio_buf_size; /* in bytes */
+	unsigned int audio_buf1_size;
+	int audio_buf_index; /* in bytes */
+	int audio_write_buf_size;
+	struct AudioParams audio_src;
+
+	struct AudioParams audio_tgt;
+	struct SwrContext *swr_ctx;
+	ShowMode  show_mode;
+	int16_t sample_array[SAMPLE_ARRAY_SIZE];
+	int sample_array_index;
+	int last_i_start;
+	RDFTContext *rdft;
+	int rdft_bits;
+	FFTSample *rdft_data;
+	int xpos;
+	double last_vis_time;
+
+	SDL_Thread *subtitle_tid;
+	int subtitle_stream;
+	AVStream *subtitle_st;
+	PacketQueue subtitleq;
+
+	double frame_timer;
+	double frame_last_returned_time;
+	double frame_last_filter_delay;
+	int video_stream;
+	AVStream *video_st;
+	PacketQueue videoq;
+	double max_frame_duration;      // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
+	struct SwsContext *img_convert_ctx;
+	SDL_Rect last_display_rect;
+
+	char filename[1024];
+	int width, height, xleft, ytop;
+	int step;
+	int last_video_stream, last_audio_stream, last_subtitle_stream;
+
+	SDL_cond *continue_read_thread;
+	int looping;
+	SDL_mutex *loopingLock;
+	SDL_Thread *loop_tid;
+} *pVideoState;
+
+
+XYPlayViewHandler* g_ctl;
 SDL_mutex *gOperateLock;
 VideoState *g_pVS;
-static SDL_Window *window;
-static SDL_Renderer *renderer;
+SDL_Window *g_pWindow;
+SDL_Renderer *g_pRenderer;
 
 static void myLog(char *fmt, ...)
 {
@@ -496,8 +763,8 @@ static inline void fill_rectangle(SDL_Surface *screen, int x, int y, int w, int 
     rect.y = y;
     rect.w = w;
     rect.h = h;
-	SDL_SetRenderDrawColor(renderer, r, g, b, a);
-	SDL_RenderFillRect(renderer, &rect);
+	SDL_SetRenderDrawColor(g_pRenderer, r, g, b, a);
+	SDL_RenderFillRect(g_pRenderer, &rect);
 }
 
 #define RGBA_IN(r, g, b, a, s)\
@@ -577,13 +844,13 @@ static void video_image_display(VideoState *is)
 	{
 		SDL_Rect rect;
 		int w, h;
-		SDL_GetWindowSize(window, &w, &h);
+		SDL_GetWindowSize(g_pWindow, &w, &h);
 		calculate_display_rect(&rect, is->xleft, is->ytop, w, h, vp->width, vp->height, vp->sar);
 
 		SDL_LockMutex(vp->textLock);
-		SDL_RenderClear(renderer);
-		SDL_RenderCopy(renderer, vp->bmp, NULL, &rect);
-		SDL_RenderPresent(renderer);
+		SDL_RenderClear(g_pRenderer);
+		SDL_RenderCopy(g_pRenderer, vp->bmp, NULL, &rect);
+		SDL_RenderPresent(g_pRenderer);
 		SDL_UnlockMutex(vp->textLock);
 		return;
     }
@@ -617,7 +884,7 @@ static void video_audio_display(VideoState *s)
         /* to be more precise, we take into account the time spent since
            the last buffer computation */
         if (audio_callback_time) {
-            time_diff = av_gettime_relative() - audio_callback_time;			
+            time_diff = av_gettime() - audio_callback_time;			
             delay -= (time_diff * s->audio_tgt.freq) / 1000000;
         }
 
@@ -731,7 +998,7 @@ static void video_audio_display(VideoState *s)
         if (s->xpos >= s->width)
             s->xpos= s->xleft;
     }
-	SDL_RenderPresent(renderer);
+	SDL_RenderPresent(g_pRenderer);
 }
 
 void stream_component_close(VideoState *is, int stream_index);
@@ -783,7 +1050,7 @@ int video_open(VideoState *is,  Frame *vp)
 
 	flags |= SDL_WINDOW_RESIZABLE;
 
-	SDL_GetWindowSize(window, &w, &h);
+	SDL_GetWindowSize(g_pWindow, &w, &h);
 	w = FFMIN(16383, w);
 	is->width  = w;
 	is->height = h;
@@ -793,7 +1060,7 @@ int video_open(VideoState *is,  Frame *vp)
 /* display the current picture, if any */
 static void video_display(VideoState *is)
 {
-    if (!renderer)
+    if (!g_pRenderer)
         video_open(is, NULL);
     if (is->audio_st && is->show_mode != SHOW_MODE_VIDEO)
         video_audio_display(is);
@@ -810,7 +1077,7 @@ static double get_clock(Clock *c)
     if (c->paused) {
         return c->pts;
     } else {
-        double time = av_gettime_relative() / 1000000.0;
+        double time = av_gettime() / 1000000.0;
         return c->pts_drift + time - (time - c->last_updated) * (1.0 - c->speed);
     }
 }
@@ -825,7 +1092,7 @@ static void set_clock_at(Clock *c, double pts, int serial, double time)
 
 static void set_clock(Clock *c, double pts, int serial)
 {
-    double time = av_gettime_relative() / 1000000.0;
+    double time = av_gettime() / 1000000.0;
     set_clock_at(c, pts, serial, time);
 }
 
@@ -918,7 +1185,7 @@ void stream_seek(VideoState *is, int64_t pos, int64_t rel, int seek_by_bytes)
 static void stream_toggle_pause(VideoState *is)
 {
     if (is->paused) {
-        is->frame_timer += av_gettime_relative() / 1000000.0 + is->vidclk.pts_drift - is->vidclk.pts;
+        is->frame_timer += av_gettime() / 1000000.0 + is->vidclk.pts_drift - is->vidclk.pts;
         if (is->read_pause_return != AVERROR(ENOSYS)) {
             is->vidclk.paused = 0;
         }
@@ -1002,7 +1269,7 @@ void video_refresh(VideoState *is, float *remaining_time)
         check_external_clock_speed(is);
 
     if (!display_disable && is->show_mode != SHOW_MODE_VIDEO && is->audio_st) {
-        time = av_gettime_relative() / 1000000.0;
+        time = av_gettime() / 1000000.0;
         if (is->force_refresh || is->last_vis_time + rdftspeed < time) {
             video_display(is);
             is->last_vis_time = time;
@@ -1035,7 +1302,7 @@ retry:
             }
 
             if (lastvp->serial != vp->serial && !redisplay)
-                is->frame_timer = av_gettime_relative() / 1000000.0;
+                is->frame_timer = av_gettime() / 1000000.0;
 
             if (is->paused)
                 goto display;
@@ -1047,7 +1314,7 @@ retry:
             else
                 delay = compute_target_delay(last_duration, is);
 
-            time= av_gettime_relative()/1000000.0;
+            time= av_gettime()/1000000.0;
             if (time < is->frame_timer + delay && !redisplay) {
                 *remaining_time = FFMIN(is->frame_timer + delay - time, *remaining_time);
 				
@@ -1108,7 +1375,7 @@ display:
 			int pos = 1000 * get_master_clock(is) / (is->ic->duration / 1000000);
 			if(g_ctl)
 			{
-				g_ctl->changeSlider(pos);
+				g_ctl->setProgress(pos);
 			}
         }
     }
@@ -1171,7 +1438,7 @@ void alloc_picture(VideoState *is, AVFrame *src)
 		vp->width = src->width;
 		vp->height = src->height;
 
-		vp->bmp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_IYUV,
+		vp->bmp = SDL_CreateTexture(g_pRenderer, SDL_PIXELFORMAT_IYUV,
 				SDL_TEXTUREACCESS_STREAMING, vp->width, vp->height);
 		myLog("vp->windex:%d vp->bmp:0x%p",is->pictq.windex, vp->bmp);
 
@@ -1206,7 +1473,7 @@ static int queue_picture(VideoState *is, AVFrame *src_frame, double pts, double 
 		vp->allocated = 0;
 		if(g_ctl)
 		{
-			g_ctl->allocTexture(renderer, is, src_frame);
+			g_ctl->allocTexture(is, src_frame);
 		}
 
     /* if the frame is not skipped, then display it */
@@ -1560,7 +1827,7 @@ static void sdl_audio_callback(void *opaque, Uint8 *stream, int len)
     VideoState *is = (VideoState*)opaque;
     int audio_size, len1;
 
-    audio_callback_time = av_gettime_relative();
+    audio_callback_time = av_gettime();
 
     while (len > 0) {
         if (is->audio_buf_index >= is->audio_buf_size) {
@@ -2183,7 +2450,7 @@ void refresh_loop_wait_event(VideoState *is, SDL_Event *event) {
     SDL_PumpEvents();
 
     while (is->looping && !SDL_PeepEvents(event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT)) {
-        if (!cursor_hidden && av_gettime_relative() - cursor_last_shown > CURSOR_HIDE_DELAY) {
+        if (!cursor_hidden && av_gettime() - cursor_last_shown > CURSOR_HIDE_DELAY) {
             SDL_ShowCursor(0);
             //cursor_hidden = 1;
         }
@@ -2322,7 +2589,7 @@ void playSeek(double frac)
 	SDL_UnlockMutex(gOperateLock);
 }
 
-void playSetCtl(ControlBtn* ctl)
+void playSetCtl(XYPlayViewHandler* ctl)
 {
 	SDL_LockMutex(gOperateLock);
 	g_ctl = ctl;
@@ -2337,23 +2604,23 @@ void playVideoRefresh(VideoState *is, float *remaining_time)
 	SDL_UnlockMutex( gOperateLock);
 }
 
-void playAllocPicture(VideoState *is, AVFrame *src)
+void playAllocPicture(VideoState *is, void *src)
 {
 	SDL_LockMutex( gOperateLock);
 	if(g_pVS && g_pVS->looping && (is == g_pVS))
-		alloc_picture(is, src);
+		alloc_picture(is, (AVFrame*)src);
 	SDL_UnlockMutex( gOperateLock);
 }
 
 void deleteView()
 {
-	if (renderer)
+	if (g_pRenderer)
 	{
-        SDL_DestroyRenderer(renderer);
+        SDL_DestroyRenderer(g_pRenderer);
 	}
-	if (window)
+	if (g_pWindow)
 	{
-        SDL_DestroyWindow(window);
+        SDL_DestroyWindow(g_pWindow);
 	}
 	
 	SDL_Quit();
@@ -2362,7 +2629,6 @@ void deleteView()
 int initFFMpeg()
 {
 	av_log_set_flags(AV_LOG_SKIP_REPEATED);
-    avfilter_register_all();
     av_register_all();
     avformat_network_init();
     av_lockmgr_register(lockmgr);
@@ -2386,24 +2652,25 @@ int initSDL()
 	return 0;
 }
 
-int createWin(QWidget *widget)
+int createWin(void *winId)
 {
 	initSDL();
-	if(widget)
+	if(winId)
 	{
-		window = SDL_CreateWindowFrom((void*)widget->winId());
-		if (!window) {
+		g_pWindow = SDL_CreateWindowFrom(winId);
+		if (!g_pWindow) {
 			return -2;
 		}
-		renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE); 
-		if(!renderer)
+		g_pRenderer = SDL_CreateRenderer(g_pWindow, -1, SDL_RENDERER_SOFTWARE); 
+		if(!g_pRenderer)
 		{
 			return -3;
 		}
 	}
+	return 0;
 }
 
-VideoState* play(char *fileName,  QWidget *widget)
+VideoState* play(char *fileName,  void *windId)
 {
 	if (!fileName)
 	{
@@ -2411,7 +2678,7 @@ VideoState* play(char *fileName,  QWidget *widget)
     }
 	initFFMpeg();
 	initSDL();
-	createWin(widget);
+	createWin(windId);
 
     g_pVS = stream_open(fileName, file_iformat);
     if (!g_pVS)
@@ -2423,14 +2690,14 @@ VideoState* play(char *fileName,  QWidget *widget)
     return g_pVS;
 }
 
-VideoState* ffplay(char *fileName,  QWidget *widget)
+VideoState* ffplay(char *fileName,  void *windId)
 {
 	if(!gOperateLock)
 	{
 		gOperateLock = SDL_CreateMutex();
 	}
 	SDL_LockMutex(gOperateLock);
-	VideoState *ret = play(fileName, widget);
+	VideoState *ret = play(fileName, windId);
 
 	SDL_UnlockMutex(gOperateLock);
 

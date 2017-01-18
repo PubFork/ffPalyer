@@ -1,10 +1,9 @@
-#include "controlbtn.h"
+#include "XYPlayView.h"
 
 #include "ffplay.h"
 
-ControlBtn::ControlBtn(QWidget *parent)
-	: QWidget(parent),
-	m_nProcess(0)
+XYPlayView::XYPlayView(QWidget *parent)
+	: QWidget(parent)
 {
 	ui.setupUi(this);
 
@@ -16,31 +15,34 @@ ControlBtn::ControlBtn(QWidget *parent)
 	connect(ui.ctlSlider, SIGNAL(valueChanged(int)), this, SLOT(slot_SliderChanged(int)));	
 	connect(this, SIGNAL(signal_playProgress(int)), ui.ctlSlider, SLOT(setValue(int)));
 
-	connect(this, SIGNAL(signal_allocTexture(SDL_Renderer*, VideoState*, AVFrame*)), this, SLOT(slot_allocTexture(SDL_Renderer*, VideoState*, AVFrame*)));
+	connect(this, SIGNAL(signal_allocTexture(VideoState*, void*)), this, SLOT(slot_allocTexture(VideoState*, void*)));
 	connect(this, SIGNAL(signal_drawTexture(VideoState*, float*)), this, SLOT(slot_drawTexture(VideoState*, float*)));
 
 	w = ui.viewPlay->width();
 	h = ui.viewPlay->height();
 }
 
-ControlBtn::~ControlBtn()
+XYPlayView::~XYPlayView()
 {
 	playStop(&mPlayer);
 }
 
-void ControlBtn::slot_btnPlayClicked()
+void XYPlayView::slot_btnPlayClicked()
 {	
-	stopOthers();
-	mPlayer = ffplay("video3.mp4", ui.viewPlay);
+	playFile("video3.mp4");
 }
 	
-void ControlBtn::slot_btnNextClicked()
+void XYPlayView::slot_btnNextClicked()
 {
-	stopOthers();
-	mPlayer = ffplay("video2.mp4", ui.viewPlay);
+	playFile("video2.mp4");
 }
 
-void ControlBtn::stopOthers()
+void XYPlayView::playFile(char *fileName)
+{
+	stopOthers();
+	mPlayer = ffplay(fileName, ui.viewPlay->winId());
+}
+void XYPlayView::stopOthers()
 {
 	playStop(&mPlayer);
 	mPlayer = NULL;
@@ -49,18 +51,18 @@ void ControlBtn::stopOthers()
 	playSetCtl(this);
 }
 
-void ControlBtn::slot_btnStopClicked()
+void XYPlayView::slot_btnStopClicked()
 {
 	if(mPlayer)
 		playStop(&mPlayer);
 }
 
-void ControlBtn::slot_btnPauseClicked()
+void XYPlayView::slot_btnPauseClicked()
 {
 	playPause(mPlayer);
 }
 
-void ControlBtn::slot_SliderChanged(int val)
+void XYPlayView::slot_SliderChanged(int val)
 {
 	if(m_nProcess != val)
 	{
@@ -68,7 +70,7 @@ void ControlBtn::slot_SliderChanged(int val)
 	}
 }
 
-void ControlBtn::changeSlider(int pos)
+void XYPlayView::setProgress(int pos)
 {
 	if(pos<=1000 & pos >= 0)
 	{
@@ -81,22 +83,22 @@ void ControlBtn::changeSlider(int pos)
 }
 
 //
-void ControlBtn::allocTexture(SDL_Renderer *renderer, VideoState *is, AVFrame *src)
+void XYPlayView::allocTexture(VideoState *is, void *srcFrame)
 {
-	emit signal_allocTexture(renderer, is, src);
+	emit signal_allocTexture(is, srcFrame);
 }
 	
-void ControlBtn::drawTexture(VideoState *is, float *remaining_time)
+void XYPlayView::drawTexture(VideoState *is, float *remaining_time)
 {
 	emit signal_drawTexture(is, remaining_time);
 }
 
-void ControlBtn::slot_allocTexture(SDL_Renderer *renderer, VideoState *is, AVFrame *src)
+void XYPlayView::slot_allocTexture(VideoState *is, void *srcFrame)
 {
-	playAllocPicture(is, src);
+	playAllocPicture(is, srcFrame);
 }
 
-void ControlBtn::slot_drawTexture(VideoState *is, float *remaining_time)
+void XYPlayView::slot_drawTexture(VideoState *is, float *remaining_time)
 {
 	playVideoRefresh(is, remaining_time);
 }
