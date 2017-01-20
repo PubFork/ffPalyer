@@ -42,6 +42,7 @@ void XYPlayView::playFile(char *fileName)
 	stopOthers();
 	mPlayer = ffplay(fileName, ui.viewPlay->winId());
 }
+
 void XYPlayView::stopOthers()
 {
 	playStop(&mPlayer);
